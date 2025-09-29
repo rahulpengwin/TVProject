@@ -1,417 +1,343 @@
 // components/VideoPlayer.tsx
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Pressable, Text, Dimensions, Alert } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  Pressable,
+  Text,
+  Dimensions,
+  Platform,
+  BackHandler,
+  TouchableOpacity
+} from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { Ionicons } from '@expo/vector-icons';
 import { useScale } from '@/hooks/useScale';
 import { VideoData, AdData, VideoService } from '@/services/VideoService';
 
+const useTVEventHandler = Platform.isTV
+  ? require('react-native').useTVEventHandler
+  : (_: any) => {};
+
 interface VideoPlayerProps {
-  video: VideoData;
+  video: VideoData;               // main video info (uri + duration in seconds)
   onVideoEnd?: () => void;
   onBack?: () => void;
+  autoPlayAd?: boolean;
 }
 
-export function VideoPlayer({ video, onVideoEnd, onBack }: VideoPlayerProps) {
+export function VideoPlayer({
+  video,
+  onVideoEnd,
+  onBack,
+  autoPlayAd = true,
+}: VideoPlayerProps) {
   const scale = useScale();
   const styles = useVideoPlayerStyles();
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [showControls, setShowControls] = useState(true);
+
+  // Modes: 'loading' → 'ad' → 'main'
+  const [mode, setMode] = useState<'loading' | 'ad' | 'main'>('loading');
+  const [ad, setAd] = useState<AdData | null>(null);
+  const [adTimer, setAdTimer] = useState(0);
+  const [canSkip, setCanSkip] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [showControls, setShowControls] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [showAd, setShowAd] = useState(false);
-  const [currentAd, setCurrentAd] = useState<AdData | null>(null);
-  const [adSkipTimer, setAdSkipTimer] = useState(0);
-  const [canSkipAd, setCanSkipAd] = useState(false);
-  const [playerReady, setPlayerReady] = useState(false);
-  
-  const adIntervalRef = useRef<number | null>(null);
-  const controlsTimeoutRef = useRef<number | null>(null);
-  const adTimerRef = useRef<number | null>(null);
-  const skipTimerRef = useRef<number | null>(null);
+  const [duration, setDuration] = useState(0);
 
-  // Main video player
-  const mainPlayer = useVideoPlayer(video.videoSource, (player) => {
-    player.loop = false;
-    player.play();
-    setPlayerReady(true);
+  // Refs for timers
+  const adInterval = useRef<number | null>(null);
+  const adTimeout = useRef<number | null>(null);
+  const controlsTimeout = useRef<number | null>(null);
+  const timeInterval = useRef<number | null>(null);
+  const mainAutoplayed = useRef(false);
+
+  // Create player without any initial source (set later via replaceAsync)
+  const player = useVideoPlayer(null, (p) => {
+    p.loop = false;
   });
 
-  // Ad video player  
-  const adPlayer = useVideoPlayer(null, (player) => {
-    player.loop = false;
+  // TV remote handler
+  useTVEventHandler((evt: any) => {
+    if (!evt) return;
+    if (['select','playPause'].includes(evt.eventType)) {
+      if (mode==='ad' && canSkip) skipAd();
+      else if (mode==='main') togglePlayPause();
+    }
+    if (['menu','back'].includes(evt.eventType)) {
+      handleBack();
+    }
   });
 
-  useEffect(() => {
-    if (!playerReady) return;
+  // Initialize: start ad or main
+  useEffect(()=>{
+    const t = setTimeout(()=>{
+      autoPlayAd ? loadAd() : loadMain();
+    },300);
+    return ()=>clearTimeout(t);
+  },[]);
 
-    // Schedule random ads every 2-3 minutes during video playback
-    const scheduleAds = () => {
-      adIntervalRef.current = setTimeout(() => {
-        if (!showAd && isPlaying && currentTime > 30) { // Wait at least 30 seconds
-          playRandomAd();
+  // Android TV back button
+  useEffect(()=>{
+    if (Platform.OS==='android'&&Platform.isTV) {
+      const h = BackHandler.addEventListener('hardwareBackPress',()=>{
+        handleBack();
+        return true;
+      });
+      return ()=>h.remove();
+    }
+  },[]);
+
+  // Track time for main
+  useEffect(()=>{
+    if (mode==='main' && isPlaying) {
+      timeInterval.current = setInterval(()=>{
+        const t = Math.floor(player.currentTime||0);
+        setCurrentTime(t);
+        if (t>=duration-1) {
+          setIsPlaying(false);
+          onVideoEnd?.();
         }
-        scheduleAds();
-      }, (90 + Math.random() * 60) * 1000); // 1.5-2.5 minutes
-    };
-
-    scheduleAds();
-
-    return () => {
-      if (adIntervalRef.current) clearTimeout(adIntervalRef.current);
-    };
-  }, [showAd, isPlaying, currentTime, playerReady]);
-
-  useEffect(() => {
-    // Auto-hide controls after 4 seconds
-    if (showControls && isPlaying && !showAd) {
-      controlsTimeoutRef.current = setTimeout(() => {
-        setShowControls(false);
-      }, 4000);
-    }
-    
-    return () => {
-      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
-    };
-  }, [showControls, isPlaying, showAd]);
-
-  useEffect(() => {
-    // Track video time progress
-    if (mainPlayer && isPlaying && !showAd) {
-      const interval = setInterval(() => {
-        setCurrentTime(prev => prev + 1);
-      }, 1000);
-      
-      return () => clearInterval(interval);
-    }
-  }, [mainPlayer, isPlaying, showAd]);
-
-  const playRandomAd = () => {
-    try {
-      const ad = VideoService.getRandomAd();
-      setCurrentAd(ad);
-      setShowAd(true);
-      setAdSkipTimer(0);
-      setCanSkipAd(false);
-      
-      // Pause main video
-      mainPlayer.pause();
-      setIsPlaying(false);
-      
-      // Load and play ad
-      adPlayer.replace(ad.videoSource);
-      adPlayer.play();
-
-      // Start skip countdown
-      skipTimerRef.current = setInterval(() => {
-        setAdSkipTimer(prev => {
-          const newTime = prev + 1;
-          if (newTime >= ad.skipAfter) {
-            setCanSkipAd(true);
-            if (skipTimerRef.current) clearInterval(skipTimerRef.current);
-          }
-          return newTime;
-        });
-      }, 1000);
-
-      // Auto-end ad after duration
-      adTimerRef.current = setTimeout(() => {
-        endAd();
-      }, ad.duration * 1000);
-      
-    } catch (error) {
-      console.error('Error playing ad:', error);
-      // If ad fails, continue with main video
-      setShowAd(false);
-    }
-  };
-
-  const endAd = () => {
-    setShowAd(false);
-    setCurrentAd(null);
-    setAdSkipTimer(0);
-    setCanSkipAd(false);
-    
-    // Clear timers
-    if (adTimerRef.current) clearTimeout(adTimerRef.current);
-    if (skipTimerRef.current) clearInterval(skipTimerRef.current);
-    
-    // Resume main video
-    adPlayer.pause();
-    mainPlayer.play();
-    setIsPlaying(true);
-  };
-
-  const skipAd = () => {
-    if (canSkipAd) {
-      endAd();
-    }
-  };
-
-  const togglePlayPause = () => {
-    if (showAd) {
-      return; // Don't allow control during ads
-    }
-    
-    if (isPlaying) {
-      mainPlayer.pause();
+      },1000) as any;
     } else {
-      mainPlayer.play();
+      clearInterval(timeInterval.current!);
     }
-    setIsPlaying(!isPlaying);
-  };
+    return ()=>clearInterval(timeInterval.current!);
+  },[mode,isPlaying,duration]);
 
-  const handlePress = () => {
-    if (!showAd) {
-      setShowControls(true);
+  // Auto-hide controls
+  useEffect(()=>{
+    if (mode==='main'&&showControls&&isPlaying){
+      clearTimeout(controlsTimeout.current!);
+      controlsTimeout.current = setTimeout(()=>setShowControls(false),4000) as any;
     }
-  };
+  },[mode,showControls,isPlaying]);
 
-const cleanupTimers = () => {
-    if (adIntervalRef.current) {
-      clearTimeout(adIntervalRef.current);
-      adIntervalRef.current = null;
-    }
-    if (controlsTimeoutRef.current) {
-      clearTimeout(controlsTimeoutRef.current);
-      controlsTimeoutRef.current = null;
-    }
-    if (adTimerRef.current) {
-      clearTimeout(adTimerRef.current);
-      adTimerRef.current = null;
-    }
-    if (skipTimerRef.current) {
-      clearInterval(skipTimerRef.current);
-      skipTimerRef.current = null;
-    }
-  };
+  function clearAdTimers(){
+    clearInterval(adInterval.current!);
+    clearTimeout(adTimeout.current!);
+  }
 
-  const handleBack = () => {
-    cleanupTimers();
-    mainPlayer.pause();
-    adPlayer.pause();
-    if (onBack) onBack();
-  };
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  // Load & play ad
+  async function loadAd(){
+    console.log('▶️ Loading Ad');
+    const a = VideoService.getRandomAd();
+    setMode('loading'); setAd(a); setAdTimer(0); setCanSkip(false);
+    setCurrentTime(0); setDuration(a.duration);
+    player.pause(); setIsPlaying(false);
+    try {
+      await player.replaceAsync(a.videoSource);
+      setMode('ad');
+      setTimeout(()=>{
+        player.currentTime=0; player.play(); setIsPlaying(true);
+        // skip countdown
+        adInterval.current = setInterval(()=>{
+          setAdTimer(t=>{
+            if (t+1>=a.skipAfter) setCanSkip(true);
+            return t+1;
+          });
+        },1000) as any;
+        // auto-skip
+        adTimeout.current = setTimeout(skipAd, a.duration*1000) as any;
+      },500);
+    } catch(e){
+      console.warn('Ad load error, skipping',e);
+      loadMain();
+    }
+  }
 
-  if (showAd && currentAd) {
-    return (
-      <View style={styles.container}>
-        <VideoView
-          style={styles.video}
-          player={adPlayer}
-          allowsFullscreen={false}
-          allowsPictureInPicture={false}
-        />
-        
+  // Skip ad
+  function skipAd(){
+    if(!canSkip) return;
+    console.log('⏭️ Skip Ad');
+    clearAdTimers();
+    player.pause(); setIsPlaying(false);
+    transitionToMain();
+  }
+
+  // Transition after ad
+  function transitionToMain(){
+    console.log('🔄 To Main');
+    clearAdTimers();
+    setMode('loading'); setAd(null); setCanSkip(false);
+    setCurrentTime(0); setShowControls(false);
+    player.pause(); setIsPlaying(false);
+    setTimeout(loadMain,300);
+  }
+
+  // Load & play main
+  async function loadMain(){
+    console.log('▶️ Loading Main');
+    setMode('loading');
+    player.pause(); setIsPlaying(false);
+    try {
+      await player.replaceAsync(video.videoSource);
+      setDuration(video.duration);
+      setMode('main');
+      setTimeout(()=>{
+        if(!mainAutoplayed.current){
+          mainAutoplayed.current=true;
+          player.currentTime=0;
+          player.play(); setIsPlaying(true); setShowControls(true);
+        }
+      },800);
+    } catch(e){
+      console.error('Main load error',e);
+      setMode('main'); setDuration(video.duration);
+    }
+  }
+
+  // Play/pause toggle
+  function togglePlayPause(){
+    if(mode!=='main') return;
+    if(isPlaying){player.pause(); setIsPlaying(false);}
+    else {player.play(); setIsPlaying(true);}
+    setShowControls(true);
+  }
+
+  // Seek
+  function handleSeek(dir:'backward'|'forward'){
+    if(mode!=='main') return;
+    const s=10;
+    const nt = dir==='forward'
+      ?Math.min(currentTime+s,duration)
+      :Math.max(currentTime-s,0);
+    player.currentTime=nt; setCurrentTime(nt); setShowControls(true);
+  }
+
+  // Screen press
+  function handleScreen(){
+    if(mode==='ad'&&canSkip) skipAd();
+    else if(mode==='main') setShowControls(v=>!v);
+  }
+
+  // Back
+  function handleBack(){
+    console.log('🔙 Back');
+    clearAdTimers(); clearInterval(timeInterval.current!);
+    player.pause();
+    onBack?.();
+  }
+
+  function format(s:number){
+    const m=Math.floor(s/60), sec=s%60;
+    return `${m}:${sec.toString().padStart(2,'0')}`;
+  }
+
+  return(
+    <View style={styles.container}>
+      {/* Video */}
+      <Pressable style={styles.videoContainer} onPress={handleScreen} focusable={Platform.isTV}>
+        <VideoView player={player} style={styles.video} allowsPictureInPicture={false}/>
+      </Pressable>
+
+      {/* Loading */}
+      {mode==='loading'&&(
+        <View style={styles.loading}>
+          <Text style={styles.loadingText}>Loading…</Text>
+        </View>
+      )}
+
+      {/* Ad Overlay */}
+      {mode==='ad'&&ad&&(
         <View style={styles.adOverlay}>
           <View style={styles.adBanner}>
             <Text style={styles.adLabel}>Advertisement</Text>
-            <Text style={styles.adTitle}>{currentAd.title}</Text>
+            <Text style={styles.adTitle}>{ad.title}</Text>
           </View>
-          
-          <View style={styles.adControls}>
-            {canSkipAd ? (
-              <Pressable 
-                style={[styles.skipButton, styles.skipButtonActive]}
-                onPress={skipAd}
-              >
-                <Text style={styles.skipText}>Skip Ad</Text>
-                <Ionicons name="play-forward" size={20 * scale} color="#fff" />
-              </Pressable>
-            ) : (
-              <View style={styles.skipButton}>
-                <Text style={styles.skipText}>
-                  Skip in {currentAd.skipAfter - adSkipTimer}s
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
-      </View>
-    );
-  }
-
-  return (
-    <Pressable style={styles.container} onPress={handlePress}>
-      <VideoView
-        style={styles.video}
-        player={mainPlayer}
-        allowsFullscreen={true}
-        allowsPictureInPicture={false}
-      />
-      
-      {showControls && (
-        <View style={styles.controlsOverlay}>
-          <View style={styles.topControls}>
-            <Pressable style={styles.backButton} onPress={handleBack}>
-              <Ionicons name="arrow-back" size={24 * scale} color="#fff" />
-            </Pressable>
-            <View style={styles.videoInfo}>
-              <Text style={styles.videoTitle}>{video.title}</Text>
-              <Text style={styles.videoDescription}>{video.description}</Text>
-              <Text style={styles.videoTime}>
-                {formatTime(currentTime)} / {formatTime(video.duration)}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.centerControls}>
-            <Pressable style={styles.playButton} onPress={togglePlayPause}>
-              <Ionicons 
-                name={isPlaying ? "pause" : "play"} 
-                size={48 * scale} 
-                color="#fff" 
-              />
-            </Pressable>
-          </View>
-
-          <View style={styles.bottomControls}>
-            <View style={styles.progressBar}>
-              <View 
-                style={[
-                  styles.progressFill, 
-                  { width: `${(currentTime / video.duration) * 100}%` }
-                ]} 
-              />
-            </View>
-          </View>
+          <TouchableOpacity
+            style={[styles.skipBtn, canSkip?styles.skipActive:styles.skipInactive]}
+            onPress={skipAd} disabled={!canSkip}>
+            <Text style={styles.skipText}>
+              {canSkip? 'Skip Ad': `Skip in ${Math.max(0,ad.skipAfter-adTimer)}s`}
+            </Text>
+          </TouchableOpacity>
         </View>
       )}
-    </Pressable>
+
+      {/* Main Controls */}
+      {mode==='main'&&showControls&&(
+        <View style={styles.controls}>
+          <View style={styles.topRow}>
+            <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
+              <Ionicons name="arrow-back" size={24*scale} color="#ab4343ff"/>
+            </TouchableOpacity>
+            <View style={styles.info}>
+              <Text style={styles.title}>{video.title}</Text>
+              <Text style={styles.time}>{format(currentTime)} / {format(duration)}</Text>
+            </View>
+          </View>
+          {/* <View style={styles.midRow}>
+            <TouchableOpacity style={styles.ctrlBtn} onPress={()=>handleSeek('backward')}>
+              <Ionicons name="play-back" size={32*scale} color="#ab4343ff"/>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.playBtn} onPress={togglePlayPause}>
+              <Ionicons name={isPlaying?'pause':'play'} size={36*scale} color="#ab4343ff"/>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.ctrlBtn} onPress={()=>handleSeek('forward')}>
+              <Ionicons name="play-forward" size={32*scale} color="#ab4343ff"/>
+            </TouchableOpacity>
+          </View> */}
+          {/* <View style={styles.botRow}>
+            <View style={styles.progress}>
+              <View style={[styles.fill,{width:`${(currentTime/duration)*100}%`}]} />
+            </View>
+          </View> */}
+        </View>
+      )}
+    </View>
   );
 }
 
 const useVideoPlayerStyles = () => {
   const scale = useScale();
-  const { width, height } = Dimensions.get('window');
-  
+  const {width, height} = Dimensions.get('window');
   return StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: '#000',
+    container:{flex:1,backgroundColor:'#000'},
+    videoContainer:{flex:1},
+    video:{width,height},
+    loading:{
+      position:'absolute',top:0,left:0,right:0,bottom:0,
+      backgroundColor:'rgba(0,0,0,0.8)',
+      justifyContent:'center',alignItems:'center'
     },
-    video: {
-      width: width,
-      height: height,
+    loadingText:{color:'#fff',fontSize:18*scale},
+    adOverlay:{
+      position:'absolute',top:0,left:0,right:0,bottom:0,
+      justifyContent:'space-between',padding:30*scale
     },
-    controlsOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(0,0,0,0.4)',
-      justifyContent: 'space-between',
-      padding: 20 * scale,
+    adBanner:{
+      backgroundColor:'rgba(255,193,7,0.95)',
+      padding:16*scale,borderRadius:10*scale
     },
-    topControls: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      gap: 15 * scale,
+    adLabel:{fontSize:12*scale,fontWeight:'bold',color:'#333'},
+    adTitle:{fontSize:16*scale,fontWeight:'bold',color:'#333'},
+    skipBtn:{
+      alignSelf:'flex-end',
+      padding:12*scale,borderRadius:8*scale
     },
-    backButton: {
-      padding: 12 * scale,
-      backgroundColor: 'rgba(0,0,0,0.7)',
-      borderRadius: 25 * scale,
+    skipActive:{backgroundColor:'rgba(0,122,255,0.9)'},
+    skipInactive:{backgroundColor:'rgba(0,0,0,0.7)'},
+    skipText:{color:'#fff',fontSize:14*scale,fontWeight:'600'},
+    controls:{
+      position:'absolute',top:0,left:0,right:0,bottom:0,
+      justifyContent:'space-between',padding:30*scale
     },
-    videoInfo: {
-      flex: 1,
+    topRow:{flexDirection:'row',alignItems:'center'},
+    backBtn:{padding:8*scale,backgroundColor:'rgba(0,0,0,0.7)',borderRadius:16*scale},
+    info:{marginLeft:16*scale},
+    title:{color:'#fff',fontSize:18*scale,fontWeight:'bold'},
+    time:{color:'#ddd',fontSize:14*scale},
+    midRow:{
+      flexDirection:'row',justifyContent:'center',alignItems:'center',gap:40*scale
     },
-    videoTitle: {
-      fontSize: 28 * scale,
-      fontWeight: 'bold',
-      color: '#fff',
-      marginBottom: 8 * scale,
+    ctrlBtn:{padding:10*scale,backgroundColor:'rgba(0,0,0,0.7)',borderRadius:20*scale},
+    playBtn:{padding:14*scale,backgroundColor:'rgba(0,0,0,0.8)',borderRadius:28*scale},
+    botRow:{alignItems:'center'},
+    progress:{
+      width:'100%',height:3*scale,backgroundColor:'rgba(255,255,255,0.3)',
+      borderRadius:2*scale,overflow:'hidden'
     },
-    videoDescription: {
-      fontSize: 18 * scale,
-      color: '#ddd',
-      marginBottom: 8 * scale,
-    },
-    videoTime: {
-      fontSize: 16 * scale,
-      color: '#bbb',
-    },
-    centerControls: {
-      position: 'absolute',
-      top: '50%',
-      left: '50%',
-      transform: [{ translateX: -40 * scale }, { translateY: -40 * scale }],
-    },
-    playButton: {
-      width: 80 * scale,
-      height: 80 * scale,
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      borderRadius: 40 * scale,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    bottomControls: {
-      alignItems: 'center',
-    },
-    progressBar: {
-      width: '100%',
-      height: 4 * scale,
-      backgroundColor: 'rgba(255,255,255,0.3)',
-      borderRadius: 2 * scale,
-      overflow: 'hidden',
-    },
-    progressFill: {
-      height: '100%',
-      backgroundColor: '#007AFF',
-      borderRadius: 2 * scale,
-    },
-    adOverlay: {
-      ...StyleSheet.absoluteFillObject,
-      justifyContent: 'space-between',
-      padding: 20 * scale,
-    },
-    adBanner: {
-      backgroundColor: 'rgba(255,193,7,0.95)',
-      padding: 15 * scale,
-      borderRadius: 12 * scale,
-      alignSelf: 'flex-start',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 4,
-      elevation: 5,
-    },
-    adLabel: {
-      fontSize: 14 * scale,
-      fontWeight: 'bold',
-      color: '#333',
-      textTransform: 'uppercase',
-    },
-    adTitle: {
-      fontSize: 20 * scale,
-      fontWeight: 'bold',
-      color: '#333',
-      marginTop: 5 * scale,
-    },
-    adControls: {
-      alignItems: 'flex-end',
-    },
-    skipButton: {
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      padding: 15 * scale,
-      borderRadius: 12 * scale,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10 * scale,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 4,
-      elevation: 5,
-    },
-    skipButtonActive: {
-      backgroundColor: 'rgba(0,122,255,0.9)',
-    },
-    skipText: {
-      fontSize: 16 * scale,
-      color: '#fff',
-      fontWeight: 'bold',
-    },
+    fill:{height:'100%',backgroundColor:'#007AFF'}
   });
 };

@@ -1,57 +1,226 @@
 // components/VideoGrid.tsx
-import React from 'react';
-import { View, FlatList, StyleSheet, Pressable, Text, Image, Dimensions } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  FlatList,
+  StyleSheet,
+  Pressable,
+  Text,
+  Image,
+  Dimensions,
+  Platform,
+  TVEventHandler,
+  HWEvent
+} from 'react-native';
 import { VideoData } from '@/services/VideoService';
 import { useScale } from '@/hooks/useScale';
 
 interface VideoGridProps {
   videos: VideoData[];
   onVideoSelect: (video: VideoData) => void;
+  featuredVideo?: VideoData;
 }
 
-export function VideoGrid({ videos, onVideoSelect }: VideoGridProps) {
+export function VideoGrid({ videos, onVideoSelect, featuredVideo }: VideoGridProps) {
   const scale = useScale();
   const styles = useVideoGridStyles();
+  const [focusedItem, setFocusedItem] = useState<string | null>(null);
 
-  const renderVideoItem = ({ item }: { item: VideoData }) => (
-    <Pressable 
+  const handleVideoPress = (video: VideoData) => {
+    onVideoSelect(video);
+  };
+
+  const renderFeaturedVideo = () => {
+    if (!featuredVideo) return null;
+
+    return (
+      <View style={styles.featuredSection}>
+        <Text style={styles.sectionTitle}>Featured</Text>
+        <Pressable
+          style={({ focused }) => [
+            styles.featuredCard,
+            focused && styles.featuredCardFocused
+          ]}
+          onPress={() => handleVideoPress(featuredVideo)}
+          onFocus={() => setFocusedItem(`featured-${featuredVideo.id}`)}
+          onBlur={() => setFocusedItem(null)}
+          focusable={Platform.isTV}
+        >
+          <Image 
+            source={featuredVideo.thumbnail} 
+            style={styles.featuredThumbnail}
+            resizeMode="cover"
+          />
+          <View style={styles.featuredInfo}>
+            <Text style={styles.featuredTitle}>{featuredVideo.title}</Text>
+            <Text style={styles.featuredDescription}>{featuredVideo.description}</Text>
+            <View style={styles.featuredMeta}>
+              <Text style={styles.featuredCategory}>{featuredVideo.category}</Text>
+              {/* <Text style={styles.featuredDuration}>
+                {formatDuration(featuredVideo.duration)}
+              </Text> */}
+              {featuredVideo.year && (
+                <Text style={styles.featuredYear}>{featuredVideo.year}</Text>
+              )}
+            </View>
+          </View>
+        </Pressable>
+      </View>
+    );
+  };
+
+  const renderVideoItem = ({ item, index }: { item: VideoData; index: number }) => (
+    <Pressable
       style={({ focused }) => [
         styles.videoCard,
-        focused && styles.videoCardFocused
+        focused && styles.videoCardFocused,
+        focusedItem === item.id && styles.videoCardFocused
       ]}
-      onPress={() => onVideoSelect(item)}
+      onPress={() => handleVideoPress(item)}
+      onFocus={() => setFocusedItem(item.id)}
+      onBlur={() => setFocusedItem(null)}
+      focusable={Platform.isTV}
     >
-      {/* Fixed: Use item.thumbnail directly for local images */}
-      <Image source={item.thumbnail} style={styles.thumbnail} resizeMode="cover" />
+      <Image 
+        source={item.thumbnail} 
+        style={styles.thumbnail}
+        resizeMode="cover"
+      />
       <View style={styles.videoInfo}>
         <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
-        <Text style={styles.category}>{item.category}</Text>
-        <Text style={styles.duration}>
-          {Math.floor(item.duration / 60)}:{(item.duration % 60).toString().padStart(2, '0')}
-        </Text>
+        <View style={styles.metaInfo}>
+          <Text style={styles.category}>{item.category}</Text>
+          {/* <Text style={styles.duration}>
+            {formatDuration(item.duration)}
+          </Text> */}
+        </View>
+        {item.year && (
+          <Text style={styles.year}>{item.year}</Text>
+        )}
       </View>
     </Pressable>
   );
 
+  // const formatDuration = (seconds: number) => {
+  //   const mins = Math.floor(seconds / 60);
+  //   const secs = seconds % 60;
+  //   return `${mins}:${secs.toString().padStart(2, '0')}`;
+  // };
+
+  const getItemLayout = (data: any, index: number) => {
+    const { width } = Dimensions.get('window');
+    const itemsPerRow = Platform.isTV ? 4 : 3;
+    const itemWidth = (width - (40 * scale) - ((itemsPerRow - 1) * 15 * scale)) / itemsPerRow;
+    const itemHeight = itemWidth * 0.75 + 100 * scale; // Aspect ratio + info height
+    
+    return {
+      length: itemHeight,
+      offset: itemHeight * Math.floor(index / itemsPerRow),
+      index,
+    };
+  };
+
   return (
-    <FlatList
-      data={videos}
-      renderItem={renderVideoItem}
-      keyExtractor={(item) => item.id}
-      numColumns={3}
-      contentContainerStyle={styles.grid}
-      showsVerticalScrollIndicator={false}
-      columnWrapperStyle={styles.row}
-    />
+    <View style={styles.container}>
+      {renderFeaturedVideo()}
+      
+      <View style={styles.gridSection}>
+        <Text style={styles.sectionTitle}>All Videos</Text>
+        <FlatList
+          data={videos}
+          renderItem={renderVideoItem}
+          keyExtractor={item => item.id}
+          numColumns={Platform.isTV ? 4 : 3}
+          contentContainerStyle={styles.grid}
+          showsVerticalScrollIndicator={false}
+          columnWrapperStyle={styles.row}
+          getItemLayout={getItemLayout}
+          removeClippedSubviews={Platform.isTV}
+          maxToRenderPerBatch={Platform.isTV ? 12 : 9}
+          windowSize={Platform.isTV ? 5 : 3}
+        />
+      </View>
+    </View>
   );
 }
 
 const useVideoGridStyles = () => {
   const scale = useScale();
   const { width } = Dimensions.get('window');
-  const cardWidth = (width - 80 * scale) / 3; // Adjusted for better spacing
-  
+  const itemsPerRow = Platform.isTV ? 4 : 3;
+  const cardWidth = (width - (40 * scale) - ((itemsPerRow - 1) * 15 * scale)) / itemsPerRow;
+
   return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: '#f5f5f5',
+    },
+    featuredSection: {
+      padding: 20 * scale,
+      backgroundColor: '#fff',
+    },
+    sectionTitle: {
+      fontSize: Platform.isTV ? 32 * scale : 24 * scale,
+      fontWeight: 'bold',
+      color: '#333',
+      marginBottom: 15 * scale,
+    },
+    featuredCard: {
+      backgroundColor: '#fff',
+      borderRadius: 15 * scale,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 12,
+      elevation: 8,
+      overflow: 'hidden',
+    },
+    featuredCardFocused: {
+      transform: [{ scale: Platform.isTV ? 1.03 : 1.02 }],
+      shadowOpacity: 0.25,
+      elevation: 12,
+    },
+    featuredThumbnail: {
+      width: '100%',
+      height: Platform.isTV ? 300 * scale : 200 * scale,
+    },
+    featuredInfo: {
+      padding: 20 * scale,
+    },
+    featuredTitle: {
+      fontSize: Platform.isTV ? 28 * scale : 20 * scale,
+      fontWeight: 'bold',
+      color: '#333',
+      marginBottom: 8 * scale,
+    },
+    featuredDescription: {
+      fontSize: Platform.isTV ? 20 * scale : 16 * scale,
+      color: '#666',
+      marginBottom: 12 * scale,
+      lineHeight: Platform.isTV ? 28 * scale : 22 * scale,
+    },
+    featuredMeta: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 15 * scale,
+    },
+    featuredCategory: {
+      fontSize: Platform.isTV ? 18 * scale : 14 * scale,
+      color: '#007AFF',
+      fontWeight: '600',
+    },
+    featuredDuration: {
+      fontSize: Platform.isTV ? 18 * scale : 14 * scale,
+      color: '#999',
+    },
+    featuredYear: {
+      fontSize: Platform.isTV ? 18 * scale : 14 * scale,
+      color: '#999',
+    },
+    gridSection: {
+      flex: 1,
+      backgroundColor: '#f5f5f5',
+    },
     grid: {
       padding: 20 * scale,
     },
@@ -67,36 +236,47 @@ const useVideoGridStyles = () => {
       shadowOffset: { width: 0, height: 2 },
       shadowOpacity: 0.1,
       shadowRadius: 8,
-      elevation: 3,
-      overflow: 'hidden', // Ensures border radius works properly
+      elevation: 4,
+      overflow: 'hidden',
     },
     videoCardFocused: {
-      transform: [{ scale: 1.05 }],
+      transform: [{ scale: Platform.isTV ? 1.08 : 1.05 }],
       shadowOpacity: 0.2,
-      elevation: 6,
+      elevation: 8,
     },
     thumbnail: {
       width: '100%',
-      height: 120 * scale,
-      backgroundColor: '#f0f0f0', // Fallback background
+      height: cardWidth * 0.6,
+      backgroundColor: '#f0f0f0',
     },
     videoInfo: {
       padding: 12 * scale,
     },
     title: {
-      fontSize: 14 * scale,
+      fontSize: Platform.isTV ? 18 * scale : 14 * scale,
       fontWeight: 'bold',
       color: '#333',
-      marginBottom: 5 * scale,
+      marginBottom: 8 * scale,
+      lineHeight: Platform.isTV ? 24 * scale : 18 * scale,
+    },
+    metaInfo: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 4 * scale,
     },
     category: {
-      fontSize: 12 * scale,
-      color: '#666',
-      marginBottom: 5 * scale,
+      fontSize: Platform.isTV ? 16 * scale : 12 * scale,
+      color: '#007AFF',
+      fontWeight: '500',
     },
     duration: {
-      fontSize: 12 * scale,
+      fontSize: Platform.isTV ? 16 * scale : 12 * scale,
       color: '#999',
+    },
+    year: {
+      fontSize: Platform.isTV ? 14 * scale : 11 * scale,
+      color: '#aaa',
     },
   });
 };
