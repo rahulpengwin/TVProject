@@ -1,5 +1,3 @@
-
-
 // components/VideoGrid.tsx
 import React, { useState, useEffect } from 'react';
 import {
@@ -12,7 +10,8 @@ import {
   Dimensions,
   Platform,
   TVEventHandler,
-  HWEvent
+  HWEvent,
+  ActivityIndicator
 } from 'react-native';
 import { VideoData } from '@/services/VideoService';
 import { useScale } from '@/hooks/useScale';
@@ -27,19 +26,27 @@ export function VideoGrid({ videos, onVideoSelect, featuredVideo }: VideoGridPro
   const scale = useScale();
   const styles = useVideoGridStyles();
   const [focusedItem, setFocusedItem] = useState<string | null>(null);
+  const [imageLoadErrors, setImageLoadErrors] = useState<Set<string>>(new Set());
 
   const handleVideoPress = (video: VideoData) => {
     onVideoSelect(video);
   };
 
+  const handleImageError = (videoId: string) => {
+    setImageLoadErrors(prev => new Set([...prev, videoId]));
+  };
+
   const renderFeaturedVideo = () => {
     if (!featuredVideo) return null;
+
+    const focused = focusedItem === `featured-${featuredVideo.id}`;
+    const hasImageError = imageLoadErrors.has(featuredVideo.id);
 
     return (
       <View style={styles.featuredSection}>
         <Text style={styles.sectionTitle}>Featured</Text>
         <Pressable
-          style={({ focused }) => [
+          style={[
             styles.featuredCard,
             focused && styles.featuredCardFocused
           ]}
@@ -48,19 +55,23 @@ export function VideoGrid({ videos, onVideoSelect, featuredVideo }: VideoGridPro
           onBlur={() => setFocusedItem(null)}
           focusable={Platform.isTV}
         >
-          <Image 
-            source={featuredVideo.thumbnail} 
-            style={styles.featuredThumbnail}
-            resizeMode="cover"
-          />
+          {!hasImageError ? (
+            <Image
+              source={{ uri: featuredVideo.thumbnail }}
+              style={styles.featuredThumbnail}
+              resizeMode="cover"
+              onError={() => handleImageError(featuredVideo.id)}
+            />
+          ) : (
+            <View style={[styles.featuredThumbnail, styles.placeholderContainer]}>
+              <Text style={styles.placeholderText}>No Image</Text>
+            </View>
+          )}
           <View style={styles.featuredInfo}>
             <Text style={styles.featuredTitle}>{featuredVideo.title}</Text>
             <Text style={styles.featuredDescription}>{featuredVideo.description}</Text>
             <View style={styles.featuredMeta}>
               <Text style={styles.featuredCategory}>{featuredVideo.category}</Text>
-              {/* <Text style={styles.featuredDuration}>
-                {formatDuration(featuredVideo.duration)}
-              </Text> */}
               {featuredVideo.year && (
                 <Text style={styles.featuredYear}>{featuredVideo.year}</Text>
               )}
@@ -71,50 +82,52 @@ export function VideoGrid({ videos, onVideoSelect, featuredVideo }: VideoGridPro
     );
   };
 
-  const renderVideoItem = ({ item, index }: { item: VideoData; index: number }) => (
-    <Pressable
-      style={({ focused }) => [
-        styles.videoCard,
-        focused && styles.videoCardFocused,
-        focusedItem === item.id && styles.videoCardFocused
-      ]}
-      onPress={() => handleVideoPress(item)}
-      onFocus={() => setFocusedItem(item.id)}
-      onBlur={() => setFocusedItem(null)}
-      focusable={Platform.isTV}
-    >
-      <Image 
-        source={item.thumbnail} 
-        style={styles.thumbnail}
-        resizeMode="cover"
-      />
-      <View style={styles.videoInfo}>
-        <Text style={styles.title} numberOfLines={2}>{item.title}</Text>
-        <View style={styles.metaInfo}>
-          <Text style={styles.category}>{item.category}</Text>
-          {/* <Text style={styles.duration}>
-            {formatDuration(item.duration)}
-          </Text> */}
-        </View>
-        {item.year && (
-          <Text style={styles.year}>{item.year}</Text>
-        )}
-      </View>
-    </Pressable>
-  );
+  const renderVideoItem = ({ item, index }: { item: VideoData; index: number }) => {
+    const focused = focusedItem === item.id;
+    const hasImageError = imageLoadErrors.has(item.id);
 
-  // const formatDuration = (seconds: number) => {
-  //   const mins = Math.floor(seconds / 60);
-  //   const secs = seconds % 60;
-  //   return `${mins}:${secs.toString().padStart(2, '0')}`;
-  // };
+    return (
+      <Pressable
+        style={[
+          styles.videoCard,
+          focused && styles.videoCardFocused,
+          focusedItem === item.id && styles.videoCardFocused
+        ]}
+        onPress={() => handleVideoPress(item)}
+        onFocus={() => setFocusedItem(item.id)}
+        onBlur={() => setFocusedItem(null)}
+        focusable={Platform.isTV}
+      >
+        {!hasImageError ? (
+          <Image
+            source={{ uri: item.thumbnail }}
+            style={styles.thumbnail}
+            resizeMode="cover"
+            onError={() => handleImageError(item.id)}
+          />
+        ) : (
+          <View style={[styles.thumbnail, styles.placeholderContainer]}>
+            <Text style={styles.placeholderText}>No Image</Text>
+          </View>
+        )}
+        <View style={styles.videoInfo}>
+          <Text style={styles.title}>{item.title}</Text>
+          <View style={styles.metaInfo}>
+            <Text style={styles.category}>{item.category}</Text>
+            {item.year && (
+              <Text style={styles.year}>{item.year}</Text>
+            )}
+          </View>
+        </View>
+      </Pressable>
+    );
+  };
 
   const getItemLayout = (data: any, index: number) => {
     const { width } = Dimensions.get('window');
     const itemsPerRow = Platform.isTV ? 4 : 3;
     const itemWidth = (width - (40 * scale) - ((itemsPerRow - 1) * 15 * scale)) / itemsPerRow;
     const itemHeight = itemWidth * 0.75 + 100 * scale; // Aspect ratio + info height
-    
     return {
       length: itemHeight,
       offset: itemHeight * Math.floor(index / itemsPerRow),
@@ -125,7 +138,6 @@ export function VideoGrid({ videos, onVideoSelect, featuredVideo }: VideoGridPro
   return (
     <View style={styles.container}>
       {renderFeaturedVideo()}
-      
       <View style={styles.gridSection}>
         <Text style={styles.sectionTitle}>All Videos</Text>
         <FlatList
@@ -211,10 +223,6 @@ const useVideoGridStyles = () => {
       color: '#007AFF',
       fontWeight: '600',
     },
-    featuredDuration: {
-      fontSize: Platform.isTV ? 18 * scale : 14 * scale,
-      color: '#999',
-    },
     featuredYear: {
       fontSize: Platform.isTV ? 18 * scale : 14 * scale,
       color: '#999',
@@ -251,6 +259,16 @@ const useVideoGridStyles = () => {
       height: cardWidth * 0.6,
       backgroundColor: '#f0f0f0',
     },
+    placeholderContainer: {
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: '#e0e0e0',
+    },
+    placeholderText: {
+      color: '#999',
+      fontSize: 12 * scale,
+      fontWeight: '500',
+    },
     videoInfo: {
       padding: 12 * scale,
     },
@@ -271,10 +289,6 @@ const useVideoGridStyles = () => {
       fontSize: Platform.isTV ? 16 * scale : 12 * scale,
       color: '#007AFF',
       fontWeight: '500',
-    },
-    duration: {
-      fontSize: Platform.isTV ? 16 * scale : 12 * scale,
-      color: '#999',
     },
     year: {
       fontSize: Platform.isTV ? 14 * scale : 11 * scale,
