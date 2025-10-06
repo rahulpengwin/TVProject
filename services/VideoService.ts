@@ -4,9 +4,9 @@ export interface VideoData {
   id: string;
   title: string;
   description: string;
-  thumbnail: string; // Changed to string for external URLs
+  thumbnail: string;
   duration: number;
-  videoSource: string; // Changed to string for external URLs
+  videoSource: string;
   category: string;
   genre?: string;
   rating?: string;
@@ -16,11 +16,20 @@ export interface VideoData {
 export interface AdData {
   id: string;
   title: string;
-  videoSource: string; // Changed to string for external URLs
+  videoSource: string;
   duration: number;
   skipAfter: number;
   advertiser?: string;
   clickThroughUrl?: string;
+  type: 'pre-roll' | 'mid-roll' | 'post-roll' | 'banner' | 'overlay';
+  frequency?: number;
+  targetCategory?: string[];
+}
+
+export interface AdSchedule {
+  timePosition: number;
+  ad: AdData;
+  triggered: boolean;
 }
 
 export class VideoService {
@@ -112,34 +121,117 @@ export class VideoService {
   ];
 
   private static ads: AdData[] = [
+    // Pre-roll ads
     {
-      id: 'ad1',
+      id: 'preroll1',
       title: 'Premium Streaming Service',
-      videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4',
+      videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
       duration: 15,
       skipAfter: 5,
       advertiser: 'StreamPlus',
-      clickThroughUrl: 'https://streamplus.com'
+      clickThroughUrl: 'https://streamplus.com',
+      type: 'pre-roll',
+      frequency: 1
     },
     {
-      id: 'ad2',
+      id: 'preroll2',
       title: 'Smart TV Promotion',
-      videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
+      videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
       duration: 20,
       skipAfter: 5,
       advertiser: 'TechBrand',
-      clickThroughUrl: 'https://techbrand.com'
+      clickThroughUrl: 'https://techbrand.com',
+      type: 'pre-roll',
+      frequency: 2
+    },
+    
+    // Enhanced Mid-roll ads with more variety
+    {
+      id: 'midroll1',
+      title: 'Energy Drink Commercial',
+      videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+      duration: 20,
+      skipAfter: 5,
+      advertiser: 'PowerBoost',
+      clickThroughUrl: 'https://powerboost.com',
+      type: 'mid-roll',
+      frequency: 1
     },
     {
-      id: 'ad3',
-      title: 'Food Delivery App',
-      videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4',
-      duration: 12,
+      id: 'midroll2',
+      title: 'Online Learning Platform',
+      videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
+      duration: 18,
+      skipAfter: 6,
+      advertiser: 'EduPlatform',
+      clickThroughUrl: 'https://eduplatform.com',
+      type: 'mid-roll',
+      frequency: 1,
+      targetCategory: ['Technology', 'Documentary']
+    },
+    {
+      id: 'midroll3',
+      title: 'Fast Food Chain',
+      videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
+      duration: 15,
       skipAfter: 5,
-      advertiser: 'QuickEats',
-      clickThroughUrl: 'https://quickeats.com'
+      advertiser: 'BurgerKing',
+      clickThroughUrl: 'https://burgerking.com',
+      type: 'mid-roll',
+      frequency: 1,
+      targetCategory: ['Lifestyle', 'Entertainment']
+    },
+    {
+      id: 'midroll4',
+      title: 'Mobile Gaming App',
+      videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
+      duration: 25,
+      skipAfter: 8,
+      advertiser: 'GameStudio',
+      clickThroughUrl: 'https://gamestudio.com',
+      type: 'mid-roll',
+      frequency: 2
+    },
+    {
+      id: 'midroll5',
+      title: 'Car Insurance Ad',
+      videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+      duration: 30,
+      skipAfter: 10,
+      advertiser: 'SafeInsurance',
+      clickThroughUrl: 'https://safeinsurance.com',
+      type: 'mid-roll',
+      frequency: 3
+    },
+    {
+      id: 'midroll6',
+      title: 'Fitness App Promotion',
+      videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
+      duration: 22,
+      skipAfter: 7,
+      advertiser: 'FitNow',
+      clickThroughUrl: 'https://fitnow.com',
+      type: 'mid-roll',
+      frequency: 2,
+      targetCategory: ['Entertainment', 'Lifestyle']
+    },
+    
+    // Post-roll ads
+    {
+      id: 'postroll1',
+      title: 'Subscribe to Premium',
+      videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+      duration: 10,
+      skipAfter: 3,
+      advertiser: 'Our Platform',
+      clickThroughUrl: 'https://ourplatform.com/premium',
+      type: 'post-roll',
+      frequency: 1
     }
   ];
+
+  private static videoWatchCount: { [key: string]: number } = {};
+  private static lastAdShown: { [key: string]: string } = {};
 
   static getVideos(): VideoData[] {
     return this.videos;
@@ -153,8 +245,90 @@ export class VideoService {
     return [...new Set(this.videos.map(video => video.category))];
   }
 
-  static getRandomAd(): AdData {
-    return this.ads[Math.floor(Math.random() * this.ads.length)];
+  static getRandomAd(type: 'pre-roll' | 'mid-roll' | 'post-roll' = 'pre-roll', videoData?: VideoData): AdData | null {
+    let availableAds = this.ads.filter(ad => ad.type === type);
+    
+    if (videoData && videoData.category) {
+      const categoryFilteredAds = availableAds.filter(ad => 
+        !ad.targetCategory || ad.targetCategory.includes(videoData.category)
+      );
+      if (categoryFilteredAds.length > 0) {
+        availableAds = categoryFilteredAds;
+      }
+    }
+    
+    const videoKey = videoData ? videoData.id : 'global';
+    const watchCount = this.videoWatchCount[videoKey] || 0;
+    
+    availableAds = availableAds.filter(ad => {
+      const frequency = ad.frequency || 1;
+      return watchCount % frequency === 0;
+    });
+    
+    if (availableAds.length === 0) return null;
+    
+    const lastAd = this.lastAdShown[type];
+    if (availableAds.length > 1 && lastAd) {
+      availableAds = availableAds.filter(ad => ad.id !== lastAd);
+    }
+    
+    const selectedAd = availableAds[Math.floor(Math.random() * availableAds.length)];
+    this.lastAdShown[type] = selectedAd.id;
+    
+    return selectedAd;
+  }
+
+  // Enhanced mid-roll ad scheduling - More random and YouTube-like
+  static generateAdSchedule(videoData: VideoData): AdSchedule[] {
+    const schedule: AdSchedule[] = [];
+    const videoDuration = videoData.duration;
+    
+    // Only add mid-roll ads for videos longer than 3 minutes
+    if (videoDuration < 180) return schedule;
+    
+    // Calculate number of ads based on video length (1 ad per 2-4 minutes)
+    const adFrequency = 120 + Math.random() * 120; // 2-4 minutes between ads
+    const maxAds = Math.floor(videoDuration / adFrequency);
+    const numAds = Math.min(maxAds, 4); // Maximum 4 mid-roll ads per video
+    
+    console.log(`📺 Scheduling ${numAds} mid-roll ads for ${videoDuration}s video`);
+    
+    for (let i = 0; i < numAds; i++) {
+      // Divide video into segments and place ads randomly within each segment
+      const segmentStart = Math.floor((videoDuration / numAds) * i) + 60; // Start after 1 minute
+      const segmentEnd = Math.floor((videoDuration / numAds) * (i + 1)) - 60; // End 1 minute before segment end
+      
+      // Random position within the segment
+      const adPosition = segmentStart + Math.random() * (segmentEnd - segmentStart);
+      
+      const ad = this.getRandomAd('mid-roll', videoData);
+      if (ad) {
+        schedule.push({
+          timePosition: Math.floor(adPosition),
+          ad,
+          triggered: false
+        });
+        console.log(`🎯 Mid-roll ad "${ad.title}" scheduled at ${Math.floor(adPosition)}s`);
+      }
+    }
+    
+    // Sort by time position
+    schedule.sort((a, b) => a.timePosition - b.timePosition);
+    
+    return schedule;
+  }
+
+  // Add method to get next ad that should be played
+  static getNextScheduledAd(schedule: AdSchedule[], currentTime: number): AdSchedule | null {
+    return schedule.find(item => 
+      !item.triggered && 
+      currentTime >= item.timePosition &&
+      currentTime <= item.timePosition + 2 // 2-second window
+    ) || null;
+  }
+
+  static incrementVideoWatchCount(videoId: string): void {
+    this.videoWatchCount[videoId] = (this.videoWatchCount[videoId] || 0) + 1;
   }
 
   static getVideoById(id: string): VideoData | undefined {
@@ -174,7 +348,6 @@ export class VideoService {
     );
   }
 
-  // Additional methods for external content management
   static async validateVideoUrl(url: string): Promise<boolean> {
     try {
       const response = await fetch(url, { method: 'HEAD' });
@@ -201,5 +374,24 @@ export class VideoService {
       return true;
     }
     return false;
+  }
+
+  static addAd(adData: Omit<AdData, 'id'>): AdData {
+    const newId = `${adData.type}_${this.ads.length + 1}`;
+    const newAd: AdData = {
+      id: newId,
+      ...adData
+    };
+    this.ads.push(newAd);
+    return newAd;
+  }
+
+  static getAdsByType(type: AdData['type']): AdData[] {
+    return this.ads.filter(ad => ad.type === type);
+  }
+
+  static resetWatchCounts(): void {
+    this.videoWatchCount = {};
+    this.lastAdShown = {};
   }
 }
