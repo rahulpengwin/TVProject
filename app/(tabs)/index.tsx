@@ -59,7 +59,7 @@ const useHomeScreenStyles = () => {
     },
     header: {
       padding: 20 * scale,
-      paddingTop: 50 * scale,
+      paddingTop: 20 * scale,
       backgroundColor: '#fff',
       borderBottomWidth: 1,
       borderBottomColor: '#e0e0e0',
