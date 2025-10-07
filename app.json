@@ -27,6 +27,10 @@
       "splash": {
         "image": "./assets/images/splash.png"
       },
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/yoga.png",
+        "backgroundColor": "#000000"
+      },
       "package": "com.rahulrushibb.TVProject"
     },
     "ios": {
@@ -43,7 +47,7 @@
       "typedRoutes": true
     },
     "newArchEnabled": true,
-    "name": "TVProject",
+    "name": "Yoga Land",
     "slug": "TVProject"
   }
 }
