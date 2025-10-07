@@ -29,6 +29,7 @@ interface VideoPlayerProps {
   adTypes?: Array<'pre-roll' | 'mid-roll' | 'post-roll'>;
 }
 
+
 export function VideoPlayer({
   video,
   onVideoEnd,
@@ -132,7 +133,7 @@ export function VideoPlayer({
           const nextAd = VideoService.getNextScheduledAd(adSchedule, currentPlayerTime);
           
           if (nextAd) {
-            console.log('🎯 Mid-roll ad triggered:', nextAd.ad.title, 'at', currentPlayerTime);
+            console.log('⏯ Mid-roll ad triggered:', nextAd.ad.title, 'at', currentPlayerTime);
             
             // Mark this ad as triggered
             const updatedSchedule = adSchedule.map(item => 
@@ -196,7 +197,7 @@ export function VideoPlayer({
     type: 'pre-roll' | 'mid-roll' | 'post-roll', 
     specificAd?: AdData
   ) {
-    console.log(`▶️ Loading ${type} Ad`);
+    console.log(`🔁 Loading ${type} Ad`);
     
     const selectedAd = specificAd || VideoService.getRandomAd(type, video);
     
@@ -240,7 +241,7 @@ export function VideoPlayer({
       }, 800);
 
     } catch (error) {
-      console.warn('Ad load error, continuing with content...', error);
+      console.warn('⚠️ Ad load error, continuing with content...', error);
       if (type === 'mid-roll') {
         resumeMainVideo();
       } else {
@@ -262,14 +263,14 @@ export function VideoPlayer({
 
     // Auto-complete ad timer
     adTimeout.current = setTimeout(() => {
-      console.log('⏰ Ad auto-completed');
+      console.log('⏹ Ad auto-completed');
       handleAdComplete();
     }, adData.duration * 1000) as number;
   }
 
   function skipAd() {
     if (!canSkip) return;
-    console.log('⏭️ Skip Ad');
+    console.log('⏭ Skip Ad');
     clearAdTimers();
     player.pause();
     setIsPlaying(false);
@@ -307,7 +308,7 @@ export function VideoPlayer({
   }
 
   async function resumeMainVideo() {
-    console.log('▶️ Resuming Main Video from time:', savedPlayTime);
+    console.log('🔁 Resuming Main Video from time:', savedPlayTime);
     clearAdTimers();
     setMode('loading');
     setAd(null);
@@ -332,14 +333,14 @@ export function VideoPlayer({
         console.log('▶️ Main video resumed at', savedPlayTime, 'seconds');
       }, 1000);
     } catch (error) {
-      console.error('Error resuming main video', error);
+      console.error('❌Error resuming main video', error);
       setErrorMessage('Failed to resume video');
       setMode('error');
     }
   }
 
   async function loadMain() {
-    console.log('▶️ Loading Main Video:', video.title);
+    console.log('🔄 Loading Main Video:', video.title);
     setMode('loading');
     setIsPlaying(false);
     setIsVideoLoaded(false);
@@ -362,14 +363,14 @@ export function VideoPlayer({
       }, 1000);
 
     } catch (error) {
-      console.error('Main video load error', error);
+      console.error('❌ Main video load error', error);
       setErrorMessage(`Failed to load video: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setMode('error');
     }
   }
 
   function handleVideoEnd() {
-    console.log('🏁 Video ended');
+    console.log('⏹ Video ended');
     setIsPlaying(false);
     
     // Check for post-roll ads before ending
@@ -381,7 +382,7 @@ export function VideoPlayer({
   }
 
   function togglePlayPause() {
-    console.log('⏯️ Toggle play/pause, current state:', isPlaying);
+    console.log('⏯ Toggle play/pause, current state:', isPlaying);
     if (mode !== 'main' || !isVideoLoaded) return;
     
     if (isPlaying) {
@@ -402,7 +403,7 @@ export function VideoPlayer({
       ? Math.min(currentTime + seekAmount, duration)
       : Math.max(currentTime - seekAmount, 0);
     
-    console.log(`⏭️ Seeking ${direction} to:`, newTime);
+    console.log(`⏩ Seeking ${direction} to:`, newTime);
     player.currentTime = newTime;
     setCurrentTime(newTime);
     setShowControls(true);
@@ -456,7 +457,7 @@ export function VideoPlayer({
             text: 'Open', 
             onPress: () => {
               // In a real app, you would use Linking.openURL(ad.clickThroughUrl)
-              console.log('Opening ad URL:', ad.clickThroughUrl);
+              console.log('🌐 Opening ad URL:', ad.clickThroughUrl);
             }
           }
         ]
@@ -505,8 +506,8 @@ export function VideoPlayer({
           <View style={styles.adBanner}>
             <Text style={styles.adLabel}>
               {currentAdType === 'pre-roll' && 'Advertisement'}
-              {currentAdType === 'mid-roll' && '🔥 Commercial Break'}
-              {currentAdType === 'post-roll' && 'Thank you for watching'}
+              {currentAdType === 'mid-roll' && '⏸ Commercial Break'}
+              {currentAdType === 'post-roll' && '🎉 Thank you for watching'}
             </Text>
             <Text style={styles.adTitle}>{ad.title}</Text>
             {ad.advertiser && (
@@ -532,7 +533,7 @@ export function VideoPlayer({
               disabled={!canSkip}
             >
               <Text style={styles.skipText}>
-                {canSkip ? 'Skip Ad ⏭️' : `Skip in ${Math.max(0, ad.skipAfter - adTimer)}s`}
+                {canSkip ? 'Skip Ad ⏭' : `Skip in ${Math.max(0, ad.skipAfter - adTimer)}s`}
               </Text>
             </TouchableOpacity>
           </View>
