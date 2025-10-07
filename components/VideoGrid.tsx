@@ -72,9 +72,9 @@ export function VideoGrid({ videos, onVideoSelect, featuredVideo }: VideoGridPro
             <Text style={styles.featuredDescription}>{featuredVideo.description}</Text>
             <View style={styles.featuredMeta}>
               <Text style={styles.featuredCategory}>{featuredVideo.category}</Text>
-              {featuredVideo.year && (
+              {/* {featuredVideo.year && (
                 <Text style={styles.featuredYear}>{featuredVideo.year}</Text>
-              )}
+              )} */}
             </View>
           </View>
         </Pressable>
@@ -114,9 +114,9 @@ export function VideoGrid({ videos, onVideoSelect, featuredVideo }: VideoGridPro
           <Text style={styles.title}>{item.title}</Text>
           <View style={styles.metaInfo}>
             <Text style={styles.category}>{item.category}</Text>
-            {item.year && (
+            {/* {item.year && (
               <Text style={styles.year}>{item.year}</Text>
-            )}
+            )} */}
           </View>
         </View>
       </Pressable>
