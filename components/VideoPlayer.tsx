@@ -1,6 +1,6 @@
 // components/VideoPlayer.tsx
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   StyleSheet,
@@ -10,15 +10,20 @@ import {
   Platform,
   BackHandler,
   TouchableOpacity,
-  Alert
-} from 'react-native';
-import { VideoView, useVideoPlayer } from 'expo-video';
-import { Ionicons } from '@expo/vector-icons';
-import { useScale } from '@/hooks/useScale';
-import { VideoData, AdData, AdSchedule, VideoService } from '@/services/VideoService';
+  Alert,
+} from "react-native";
+import { VideoView, useVideoPlayer } from "expo-video";
+import { Ionicons } from "@expo/vector-icons";
+import { useScale } from "@/hooks/useScale";
+import {
+  VideoData,
+  AdData,
+  AdSchedule,
+  VideoService,
+} from "@/services/VideoService";
 
 const useTVEventHandler = Platform.isTV
-  ? require('react-native').useTVEventHandler
+  ? require("react-native").useTVEventHandler
   : (_: any) => {};
 
 interface VideoPlayerProps {
@@ -26,22 +31,23 @@ interface VideoPlayerProps {
   onVideoEnd?: () => void;
   onBack?: () => void;
   autoPlayAd?: boolean;
-  adTypes?: Array<'pre-roll' | 'mid-roll' | 'post-roll'>;
+  adTypes?: Array<"pre-roll" | "mid-roll" | "post-roll">;
 }
-
 
 export function VideoPlayer({
   video,
   onVideoEnd,
   onBack,
   autoPlayAd = true,
-  adTypes = ['pre-roll', 'mid-roll', 'post-roll'],
+  adTypes = ["pre-roll", "mid-roll", "post-roll"],
 }: VideoPlayerProps) {
   const scale = useScale();
   const styles = useVideoPlayerStyles();
 
   // Enhanced state management
-  const [mode, setMode] = useState<'loading' | 'ad' | 'main' | 'error'>('loading');
+  const [mode, setMode] = useState<"loading" | "ad" | "main" | "error">(
+    "loading"
+  );
   const [ad, setAd] = useState<AdData | null>(null);
   const [adTimer, setAdTimer] = useState(0);
   const [canSkip, setCanSkip] = useState(false);
@@ -49,12 +55,14 @@ export function VideoPlayer({
   const [showControls, setShowControls] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState("");
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
-  
+
   // Enhanced ad scheduling state
   const [adSchedule, setAdSchedule] = useState<AdSchedule[]>([]);
-  const [currentAdType, setCurrentAdType] = useState<'pre-roll' | 'mid-roll' | 'post-roll'>('pre-roll');
+  const [currentAdType, setCurrentAdType] = useState<
+    "pre-roll" | "mid-roll" | "post-roll"
+  >("pre-roll");
   const [savedPlayTime, setSavedPlayTime] = useState(0); // Save time before ad
 
   // Timer refs
@@ -64,43 +72,90 @@ export function VideoPlayer({
   const timeInterval = useRef<number | null>(null);
 
   // Create video player without initial source
-  const player = useVideoPlayer('', (player) => {
+  const player = useVideoPlayer("", (player) => {
     player.loop = false;
     player.muted = false;
     player.volume = 1.0;
   });
 
-  // TV remote handler
+
+  // TV remote handler - Enhanced with complete D-pad support
   useTVEventHandler((evt: any) => {
     if (!evt) return;
-    if (['select', 'playPause'].includes(evt.eventType)) {
-      if (mode === 'ad' && canSkip) skipAd();
-      else if (mode === 'main') togglePlayPause();
+
+    const { eventType } = evt;
+
+    console.log("📺 TV Remote Event:", eventType, "Mode:", mode);
+
+    // Select/Play-Pause Button
+    if (["select", "playPause"].includes(eventType)) {
+      if (mode === "ad" && canSkip) {
+        skipAd();
+      } else if (mode === "main" && isVideoLoaded) {
+        togglePlayPause();
+      }
+      return;
     }
-    if (['menu', 'back'].includes(evt.eventType)) {
+
+    // Back/Menu Button
+    if (["menu", "back"].includes(eventType)) {
       handleBack();
+      return;
+    }
+
+    // D-pad navigation during main video playback
+    if (mode === "main" && isVideoLoaded) {
+      // Left Arrow - Seek Backward
+      if (eventType === "right") {
+        handleSeek("forward");
+        return;
+      }
+
+      // Right Arrow - Seek Forward
+      if (eventType === "left") {
+        handleSeek("backward");
+        return;
+      }
+
+      // Up Arrow - Volume Up (optional)
+      if (eventType === "up") {
+        const newVolume = Math.min(player.volume + 0.1, 1.0);
+        player.volume = newVolume;
+        console.log("🔊 Volume:", Math.round(newVolume * 100) + "%");
+        setShowControls(true);
+        return;
+      }
+
+      // Down Arrow - Volume Down (optional)
+      if (eventType === "down") {
+        const newVolume = Math.max(player.volume - 0.1, 0);
+        player.volume = newVolume;
+        console.log("🔉 Volume:", Math.round(newVolume * 100) + "%");
+        setShowControls(true);
+        return;
+      }
     }
   });
 
   // Initialize video and ad scheduling
   useEffect(() => {
     const initializePlayer = async () => {
-      console.log('🎬 Initializing Player for video:', video.title);
-      
+      console.log("🎬 Initializing Player for video:", video.title);
+
       // Generate enhanced random ad schedule
       const schedule = VideoService.generateAdSchedule(video);
       setAdSchedule(schedule);
-      
+
       // Increment watch count for ad frequency calculation
       VideoService.incrementVideoWatchCount(video.id);
-      
+
       // Set initial duration
       setDuration(video.duration);
-      
+
       // Start with pre-roll ad or main video
       setTimeout(() => {
-        if (autoPlayAd && adTypes.includes('pre-roll')) {
-          loadAd('pre-roll');
+        if (autoPlayAd && adTypes.includes("pre-roll")) {
+          loadAd("pre-roll");
         } else {
           loadMain();
         }
@@ -112,8 +167,8 @@ export function VideoPlayer({
 
   // Android TV back button handler
   useEffect(() => {
-    if (Platform.OS === 'android' && Platform.isTV) {
-      const handler = BackHandler.addEventListener('hardwareBackPress', () => {
+    if (Platform.OS === "android" && Platform.isTV) {
+      const handler = BackHandler.addEventListener("hardwareBackPress", () => {
         handleBack();
         return true;
       });
@@ -123,34 +178,42 @@ export function VideoPlayer({
 
   // Enhanced time tracking with better mid-roll ad detection
   useEffect(() => {
-    if (mode === 'main' && isPlaying && isVideoLoaded) {
+    if (mode === "main" && isPlaying && isVideoLoaded) {
       timeInterval.current = setInterval(() => {
         const currentPlayerTime = Math.floor(player.currentTime || 0);
         setCurrentTime(currentPlayerTime);
-        
+
         // Check for scheduled mid-roll ads
-        if (adTypes.includes('mid-roll')) {
-          const nextAd = VideoService.getNextScheduledAd(adSchedule, currentPlayerTime);
-          
+        if (adTypes.includes("mid-roll")) {
+          const nextAd = VideoService.getNextScheduledAd(
+            adSchedule,
+            currentPlayerTime
+          );
+
           if (nextAd) {
-            console.log('⏯ Mid-roll ad triggered:', nextAd.ad.title, 'at', currentPlayerTime);
-            
+            console.log(
+              "⏯ Mid-roll ad triggered:",
+              nextAd.ad.title,
+              "at",
+              currentPlayerTime
+            );
+
             // Mark this ad as triggered
-            const updatedSchedule = adSchedule.map(item => 
+            const updatedSchedule = adSchedule.map((item) =>
               item === nextAd ? { ...item, triggered: true } : item
             );
             setAdSchedule(updatedSchedule);
-            
+
             // Save current time and pause main video
             setSavedPlayTime(currentPlayerTime);
             player.pause();
             setIsPlaying(false);
-            
+
             // Load and play the ad
-            setTimeout(() => loadAd('mid-roll', nextAd.ad), 500);
+            setTimeout(() => loadAd("mid-roll", nextAd.ad), 500);
           }
         }
-        
+
         // Check for video end
         if (currentPlayerTime >= duration - 2) {
           handleVideoEnd();
@@ -173,11 +236,14 @@ export function VideoPlayer({
 
   // Auto-hide controls
   useEffect(() => {
-    if (mode === 'main' && showControls && isPlaying) {
+    if (mode === "main" && showControls && isPlaying) {
       if (controlsTimeout.current !== null) {
         clearTimeout(controlsTimeout.current);
       }
-      controlsTimeout.current = setTimeout(() => setShowControls(false), 4000) as number;
+      controlsTimeout.current = setTimeout(
+        () => setShowControls(false),
+        4000
+      ) as number;
     }
   }, [mode, showControls, isPlaying]);
 
@@ -194,27 +260,27 @@ export function VideoPlayer({
 
   // Enhanced ad loading with specific ad support
   async function loadAd(
-    type: 'pre-roll' | 'mid-roll' | 'post-roll', 
+    type: "pre-roll" | "mid-roll" | "post-roll",
     specificAd?: AdData
   ) {
     console.log(`🔁 Loading ${type} Ad`);
-    
+
     const selectedAd = specificAd || VideoService.getRandomAd(type, video);
-    
+
     if (!selectedAd) {
       console.log(`No ${type} ad available, proceeding...`);
-      if (type === 'pre-roll') {
+      if (type === "pre-roll") {
         loadMain();
-      } else if (type === 'mid-roll') {
+      } else if (type === "mid-roll") {
         // Resume main video immediately if no ad
         resumeMainVideo();
-      } else if (type === 'post-roll') {
+      } else if (type === "post-roll") {
         onVideoEnd?.();
       }
       return;
     }
 
-    setMode('loading');
+    setMode("loading");
     setAd(selectedAd);
     setCurrentAdType(type);
     setAdTimer(0);
@@ -225,24 +291,23 @@ export function VideoPlayer({
     setIsVideoLoaded(false);
 
     try {
-      console.log('🎥 Loading ad video source:', selectedAd.videoSource);
-      
+      console.log("🎥 Loading ad video source:", selectedAd.videoSource);
+
       // Use replaceAsync for ad
       await player.replaceAsync(selectedAd.videoSource);
       setIsVideoLoaded(true);
-      
+
       setTimeout(() => {
-        setMode('ad');
+        setMode("ad");
         player.currentTime = 0;
         player.play();
         setIsPlaying(true);
         startAdCountdown(selectedAd);
         console.log(`▶️ ${type} ad playback started: "${selectedAd.title}"`);
       }, 800);
-
     } catch (error) {
-      console.warn('⚠️ Ad load error, continuing with content...', error);
-      if (type === 'mid-roll') {
+      console.warn("⚠️ Ad load error, continuing with content...", error);
+      if (type === "mid-roll") {
         resumeMainVideo();
       } else {
         setTimeout(() => handleAdComplete(), 1000);
@@ -253,7 +318,7 @@ export function VideoPlayer({
   function startAdCountdown(adData: AdData) {
     // Skip countdown timer
     adInterval.current = setInterval(() => {
-      setAdTimer(timer => {
+      setAdTimer((timer) => {
         if (timer + 1 >= adData.skipAfter) {
           setCanSkip(true);
         }
@@ -263,14 +328,14 @@ export function VideoPlayer({
 
     // Auto-complete ad timer
     adTimeout.current = setTimeout(() => {
-      console.log('⏹ Ad auto-completed');
+      console.log("⏹ Ad auto-completed");
       handleAdComplete();
     }, adData.duration * 1000) as number;
   }
 
   function skipAd() {
     if (!canSkip) return;
-    console.log('⏭ Skip Ad');
+    console.log("⏭ Skip Ad");
     clearAdTimers();
     player.pause();
     setIsPlaying(false);
@@ -278,113 +343,114 @@ export function VideoPlayer({
   }
 
   function handleAdComplete() {
-    console.log('✅ Ad completed, type:', currentAdType);
+    console.log("✅ Ad completed, type:", currentAdType);
     clearAdTimers();
-    
-    if (currentAdType === 'pre-roll') {
+
+    if (currentAdType === "pre-roll") {
       transitionToMain();
-    } else if (currentAdType === 'mid-roll') {
+    } else if (currentAdType === "mid-roll") {
       // Resume main video from saved position
       resumeMainVideo();
-    } else if (currentAdType === 'post-roll') {
+    } else if (currentAdType === "post-roll") {
       onVideoEnd?.();
     }
   }
 
   function transitionToMain() {
-    console.log('🔄 Transitioning to Main Video');
+    console.log("🔄 Transitioning to Main Video");
     clearAdTimers();
-    setMode('loading');
+    setMode("loading");
     setAd(null);
     setCanSkip(false);
     setCurrentTime(0);
     setShowControls(false);
     setIsPlaying(false);
     setIsVideoLoaded(false);
-    
+
     setTimeout(() => {
       loadMain();
     }, 500);
   }
 
   async function resumeMainVideo() {
-    console.log('🔁 Resuming Main Video from time:', savedPlayTime);
+    console.log("🔁 Resuming Main Video from time:", savedPlayTime);
     clearAdTimers();
-    setMode('loading');
+    setMode("loading");
     setAd(null);
     setCanSkip(false);
     setShowControls(false);
     setIsVideoLoaded(false);
-    
+
     try {
       // Use replaceAsync for main video
-      await player.replaceAsync(video.videoSource);
+      await player.replaceAsync(video.videoUrl);
       setDuration(video.duration);
       setIsVideoLoaded(true);
-      
+
       setTimeout(() => {
         // Seek to saved position (where ad was triggered)
         player.currentTime = savedPlayTime;
         setCurrentTime(savedPlayTime);
-        setMode('main');
+        setMode("main");
         player.play();
         setIsPlaying(true);
         setShowControls(true);
-        console.log('▶️ Main video resumed at', savedPlayTime, 'seconds');
+        console.log("▶️ Main video resumed at", savedPlayTime, "seconds");
       }, 1000);
     } catch (error) {
-      console.error('❌Error resuming main video', error);
-      setErrorMessage('Failed to resume video');
-      setMode('error');
+      console.error("❌Error resuming main video", error);
+      setErrorMessage("Failed to resume video");
+      setMode("error");
     }
   }
 
   async function loadMain() {
-    console.log('🔄 Loading Main Video:', video.title);
-    setMode('loading');
+    console.log("🔄 Loading Main Video:", video.title);
+    setMode("loading");
     setIsPlaying(false);
     setIsVideoLoaded(false);
 
     try {
-      console.log('🎥 Main video source:', video.videoSource);
-      
       // Use replaceAsync for better performance
-      await player.replaceAsync(video.videoSource);
+      await player.replaceAsync(video.videoUrl);
       setDuration(video.duration);
       setIsVideoLoaded(true);
-      
+
       setTimeout(() => {
-        setMode('main');
+        setMode("main");
         player.currentTime = 0;
         player.play();
         setIsPlaying(true);
         setShowControls(true);
-        console.log('▶️ Main video playback started');
+        console.log("▶️ Main video playback started");
       }, 1000);
-
     } catch (error) {
-      console.error('❌ Main video load error', error);
-      setErrorMessage(`Failed to load video: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      setMode('error');
+      console.error("❌ Main video load error", error);
+      setErrorMessage(
+        `Failed to load video: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+      setMode("error");
     }
   }
 
   function handleVideoEnd() {
-    console.log('⏹ Video ended');
+    console.log("⏹ Video ended");
     setIsPlaying(false);
-    
+
     // Check for post-roll ads before ending
-    if (adTypes.includes('post-roll')) {
-      loadAd('post-roll');
+    if (adTypes.includes("post-roll")) {
+      loadAd("post-roll");
     } else {
       onVideoEnd?.();
     }
   }
 
   function togglePlayPause() {
-    console.log('⏯ Toggle play/pause, current state:', isPlaying);
-    if (mode !== 'main' || !isVideoLoaded) return;
-    
+    console.log("⏯ Toggle play/pause, current state:", isPlaying);
+    if (mode !== "main" || !isVideoLoaded) return;
+
     if (isPlaying) {
       player.pause();
       setIsPlaying(false);
@@ -395,14 +461,15 @@ export function VideoPlayer({
     setShowControls(true);
   }
 
-  function handleSeek(direction: 'backward' | 'forward') {
-    if (mode !== 'main' || !isVideoLoaded) return;
-    
+  function handleSeek(direction: "backward" | "forward") {
+    if (mode !== "main" || !isVideoLoaded) return;
+
     const seekAmount = 10;
-    const newTime = direction === 'forward'
-      ? Math.min(currentTime + seekAmount, duration)
-      : Math.max(currentTime - seekAmount, 0);
-    
+    const newTime =
+      direction === "forward"
+        ? Math.min(currentTime + seekAmount, duration)
+        : Math.max(currentTime - seekAmount, 0);
+
     console.log(`⏩ Seeking ${direction} to:`, newTime);
     player.currentTime = newTime;
     setCurrentTime(newTime);
@@ -410,31 +477,31 @@ export function VideoPlayer({
   }
 
   function handleScreen() {
-    console.log('👆 Screen tapped, mode:', mode);
-    if (mode === 'ad' && canSkip) {
+    console.log("👆 Screen tapped, mode:", mode);
+    if (mode === "ad" && canSkip) {
       skipAd();
-    } else if (mode === 'main' && isVideoLoaded) {
-      setShowControls(prev => !prev);
+    } else if (mode === "main" && isVideoLoaded) {
+      setShowControls((prev) => !prev);
     }
   }
 
   function handleBack() {
-    console.log('🔙 Back Button Pressed');
+    console.log("🔙 Back Button Pressed");
     clearAdTimers();
-    
+
     if (timeInterval.current !== null) {
       clearInterval(timeInterval.current);
       timeInterval.current = null;
     }
-    
+
     player.pause();
     onBack?.();
   }
 
   function retryLoading() {
-    console.log('🔄 Retrying video load');
-    setMode('loading');
-    setErrorMessage('');
+    console.log("🔄 Retrying video load");
+    setMode("loading");
+    setErrorMessage("");
     setIsVideoLoaded(false);
     setTimeout(() => loadMain(), 500);
   }
@@ -442,24 +509,24 @@ export function VideoPlayer({
   function formatTime(seconds: number): string {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
   }
 
   // Enhanced ad click handler
   function handleAdClick() {
     if (ad?.clickThroughUrl) {
       Alert.alert(
-        'Open Advertisement',
-        `Visit ${ad.advertiser || 'advertiser'} website?`,
+        "Open Advertisement",
+        `Visit ${ad.advertiser || "advertiser"} website?`,
         [
-          { text: 'Cancel', style: 'cancel' },
-          { 
-            text: 'Open', 
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Open",
             onPress: () => {
               // In a real app, you would use Linking.openURL(ad.clickThroughUrl)
-              console.log('🌐 Opening ad URL:', ad.clickThroughUrl);
-            }
-          }
+              console.log("🌐 Opening ad URL:", ad.clickThroughUrl);
+            },
+          },
         ]
       );
     }
@@ -476,22 +543,22 @@ export function VideoPlayer({
           nativeControls={false}
           contentFit="contain"
         />
-        
+
         {/* Touch overlay for interactions */}
         <Pressable style={styles.overlay} onPress={handleScreen} />
       </View>
 
       {/* Loading State */}
-      {(mode === 'loading' || !isVideoLoaded) && (
+      {(mode === "loading" || !isVideoLoaded) && (
         <View style={styles.loading}>
           <Text style={styles.loadingText}>
-            {mode === 'loading' ? 'Loading...' : 'Preparing video...'}
+            {mode === "loading" ? "Loading..." : "Preparing video..."}
           </Text>
         </View>
       )}
 
       {/* Error State */}
-      {mode === 'error' && (
+      {mode === "error" && (
         <View style={styles.loading}>
           <Text style={styles.errorText}>Error: {errorMessage}</Text>
           <TouchableOpacity style={styles.retryButton} onPress={retryLoading}>
@@ -501,39 +568,44 @@ export function VideoPlayer({
       )}
 
       {/* Enhanced Ad Overlay with Random Mid-roll Support */}
-      {mode === 'ad' && ad && isVideoLoaded && (
+      {mode === "ad" && ad && isVideoLoaded && (
         <View style={styles.adOverlay}>
           <View style={styles.adBanner}>
             <Text style={styles.adLabel}>
-              {currentAdType === 'pre-roll' && 'Advertisement'}
-              {currentAdType === 'mid-roll' && '⏸ Commercial Break'}
-              {currentAdType === 'post-roll' && '🎉 Thank you for watching'}
+              {currentAdType === "pre-roll" && "Advertisement"}
+              {currentAdType === "mid-roll" && "⏸ Commercial Break"}
+              {currentAdType === "post-roll" && "🎉 Thank you for watching"}
             </Text>
             <Text style={styles.adTitle}>{ad.title}</Text>
             {ad.advertiser && (
               <Text style={styles.adAdvertiser}>by {ad.advertiser}</Text>
             )}
-            {currentAdType === 'mid-roll' && (
+            {currentAdType === "mid-roll" && (
               <Text style={styles.adResume}>
                 Video will resume in {Math.max(0, ad.duration - adTimer)}s
               </Text>
             )}
           </View>
-          
+
           <View style={styles.adControls}>
-            {ad.clickThroughUrl && (
+            {/* {ad.clickThroughUrl && (
               <TouchableOpacity style={styles.adClickButton} onPress={handleAdClick}>
                 <Text style={styles.adClickText}>Learn More</Text>
               </TouchableOpacity>
             )}
-            
+             */}
             <TouchableOpacity
-              style={[styles.skipBtn, canSkip ? styles.skipActive : styles.skipInactive]}
+              style={[
+                styles.skipBtn,
+                canSkip ? styles.skipActive : styles.skipInactive,
+              ]}
               onPress={() => canSkip && skipAd()}
               disabled={!canSkip}
             >
               <Text style={styles.skipText}>
-                {canSkip ? 'Skip Ad ⏭' : `Skip in ${Math.max(0, ad.skipAfter - adTimer)}s`}
+                {canSkip
+                  ? "Skip Ad ⏭"
+                  : `Skip in ${Math.max(0, ad.skipAfter - adTimer)}s`}
               </Text>
             </TouchableOpacity>
           </View>
@@ -541,7 +613,7 @@ export function VideoPlayer({
       )}
 
       {/* Main Video Controls */}
-      {mode === 'main' && showControls && isVideoLoaded && (
+      {mode === "main" && showControls && isVideoLoaded && (
         <View style={styles.controls}>
           <View style={styles.topRow}>
             <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
@@ -556,38 +628,50 @@ export function VideoPlayer({
           </View>
 
           <View style={styles.midRow}>
-            <TouchableOpacity style={styles.ctrlBtn} onPress={() => handleSeek('backward')}>
-              <Ionicons name="play-back" size={32 * scale} color="#fff" />
+            <TouchableOpacity
+              style={styles.ctrlBtn}
+              onPress={() => handleSeek("backward")}
+            >
+              <Ionicons name="play-back" size={24 * scale} color="#fff" />
             </TouchableOpacity>
-            
+
             <TouchableOpacity style={styles.playBtn} onPress={togglePlayPause}>
-              <Ionicons 
-                name={isPlaying ? "pause" : "play"} 
-                size={40 * scale} 
-                color="#fff" 
+              <Ionicons
+                name={isPlaying ? "pause" : "play"}
+                size={28 * scale}
+                color="#fff"
               />
             </TouchableOpacity>
-            
-            <TouchableOpacity style={styles.ctrlBtn} onPress={() => handleSeek('forward')}>
-              <Ionicons name="play-forward" size={32 * scale} color="#fff" />
+
+            <TouchableOpacity
+              style={styles.ctrlBtn}
+              onPress={() => handleSeek("forward")}
+            >
+              <Ionicons name="play-forward" size={24 * scale} color="#fff" />
             </TouchableOpacity>
           </View>
 
           <View style={styles.botRow}>
             <View style={styles.progress}>
-              <View 
+              <View
                 style={[
-                  styles.fill, 
-                  { width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }
-                ]} 
+                  styles.fill,
+                  {
+                    width: `${
+                      duration > 0 ? (currentTime / duration) * 100 : 0
+                    }%`,
+                  },
+                ]}
               />
               {/* Show ad markers on progress bar */}
               {adSchedule.map((scheduleItem, index) => (
-                <View 
+                <View
                   key={index}
                   style={[
                     styles.adMarker,
-                    { left: `${(scheduleItem.timePosition / duration) * 100}%` }
+                    {
+                      left: `${(scheduleItem.timePosition / duration) * 100}%`,
+                    },
                   ]}
                 />
               ))}
@@ -599,199 +683,201 @@ export function VideoPlayer({
   );
 }
 
+
+
 const useVideoPlayerStyles = () => {
   const scale = useScale();
-  const { width, height } = Dimensions.get('window');
+  const { width, height } = Dimensions.get("window");
 
   return StyleSheet.create({
-    container: { 
-      flex: 1, 
-      backgroundColor: '#000' 
-    },
-    videoContainer: { 
+    container: {
       flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center'
+      backgroundColor: "#000",
     },
-    video: { 
-      width, 
+    videoContainer: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    video: {
+      width,
       height,
-      backgroundColor: '#000'
+      backgroundColor: "#000",
     },
     overlay: {
-      position: 'absolute',
+      position: "absolute",
       top: 0,
       left: 0,
       right: 0,
       bottom: 0,
     },
     loading: {
-      position: 'absolute',
+      position: "absolute",
       top: 0,
       left: 0,
       right: 0,
       bottom: 0,
-      backgroundColor: 'rgba(0,0,0,0.8)',
-      justifyContent: 'center',
-      alignItems: 'center'
+      backgroundColor: "rgba(0,0,0,0.8)",
+      justifyContent: "center",
+      alignItems: "center",
     },
-    loadingText: { 
-      color: '#fff', 
-      fontSize: 18 * scale 
+    loadingText: {
+      color: "#fff",
+      fontSize: 18 * scale,
     },
     errorText: {
-      color: '#ff6b6b',
+      color: "#ff6b6b",
       fontSize: 16 * scale,
-      textAlign: 'center',
+      textAlign: "center",
       marginBottom: 20 * scale,
-      paddingHorizontal: 20 * scale
+      paddingHorizontal: 20 * scale,
     },
     retryButton: {
-      backgroundColor: '#007AFF',
+      backgroundColor: "#007AFF",
       paddingHorizontal: 20 * scale,
       paddingVertical: 10 * scale,
-      borderRadius: 8 * scale
+      borderRadius: 8 * scale,
     },
     retryText: {
-      color: '#fff',
+      color: "#fff",
       fontSize: 16 * scale,
-      fontWeight: '600'
+      fontWeight: "600",
     },
     adOverlay: {
-      position: 'absolute',
+      position: "absolute",
       top: 0,
       left: 0,
       right: 0,
       bottom: 0,
-      justifyContent: 'space-between',
-      padding: 30 * scale
+      justifyContent: "space-between",
+      padding: 30 * scale,
     },
     adBanner: {
-      backgroundColor: 'rgba(255,193,7,0.95)',
+      backgroundColor: "rgba(255,193,7,0.95)",
       padding: 16 * scale,
-      borderRadius: 10 * scale
+      borderRadius: 10 * scale,
     },
-    adLabel: { 
-      fontSize: 12 * scale, 
-      fontWeight: 'bold', 
-      color: '#333' 
+    adLabel: {
+      fontSize: 12 * scale,
+      fontWeight: "bold",
+      color: "#333",
     },
-    adTitle: { 
-      fontSize: 16 * scale, 
-      fontWeight: 'bold', 
-      color: '#333',
-      marginTop: 4 * scale
+    adTitle: {
+      fontSize: 16 * scale,
+      fontWeight: "bold",
+      color: "#333",
+      marginTop: 4 * scale,
     },
     adAdvertiser: {
       fontSize: 14 * scale,
-      color: '#666',
+      color: "#666",
       marginTop: 2 * scale,
-      fontStyle: 'italic'
+      fontStyle: "italic",
     },
     adResume: {
       fontSize: 12 * scale,
-      color: '#555',
+      color: "#555",
       marginTop: 4 * scale,
-      fontWeight: '500'
+      fontWeight: "500",
     },
     adControls: {
-      alignItems: 'flex-end',
-      gap: 10 * scale
+      alignItems: "flex-end",
+      gap: 10 * scale,
     },
     adClickButton: {
-      backgroundColor: 'rgba(0,122,255,0.9)',
+      backgroundColor: "rgba(0,122,255,0.9)",
       paddingHorizontal: 16 * scale,
       paddingVertical: 8 * scale,
-      borderRadius: 6 * scale
+      borderRadius: 6 * scale,
     },
     adClickText: {
-      color: '#fff',
+      color: "#fff",
       fontSize: 14 * scale,
-      fontWeight: '600'
+      fontWeight: "600",
     },
     skipBtn: {
       padding: 12 * scale,
-      borderRadius: 8 * scale
+      borderRadius: 8 * scale,
     },
-    skipActive: { 
-      backgroundColor: 'rgba(0,122,255,0.9)' 
+    skipActive: {
+      backgroundColor: "rgba(0,122,255,0.9)",
     },
-    skipInactive: { 
-      backgroundColor: 'rgba(0,0,0,0.7)' 
+    skipInactive: {
+      backgroundColor: "rgba(0,0,0,0.7)",
     },
-    skipText: { 
-      color: '#fff', 
-      fontSize: 14 * scale, 
-      fontWeight: '600' 
+    skipText: {
+      color: "#fff",
+      fontSize: 14 * scale,
+      fontWeight: "600",
     },
     controls: {
-      position: 'absolute',
+      position: "absolute",
       top: 0,
       left: 0,
       right: 0,
       bottom: 0,
-      justifyContent: 'space-between',
-      padding: 30 * scale
+      justifyContent: "space-between",
+      padding: 30 * scale,
     },
-    topRow: { 
-      flexDirection: 'row', 
-      alignItems: 'center' 
+    topRow: {
+      flexDirection: "row",
+      alignItems: "center",
     },
-    backBtn: { 
-      padding: 8 * scale, 
-      backgroundColor: 'rgba(0,0,0,0.7)', 
-      borderRadius: 16 * scale 
+    backBtn: {
+      padding: 8 * scale,
+      backgroundColor: "rgba(0,0,0,0.7)",
+      borderRadius: 16 * scale,
     },
-    info: { 
-      marginLeft: 16 * scale 
+    info: {
+      marginLeft: 16 * scale,
     },
-    title: { 
-      color: '#fff', 
-      fontSize: 18 * scale, 
-      fontWeight: 'bold' 
+    title: {
+      color: "#fff",
+      fontSize: 18 * scale,
+      fontWeight: "bold",
     },
-    time: { 
-      color: '#ddd', 
-      fontSize: 14 * scale 
+    time: {
+      color: "#ddd",
+      fontSize: 14 * scale,
     },
     midRow: {
-      flexDirection: 'row',
-      justifyContent: 'center',
-      alignItems: 'center',
-      gap: 40 * scale
+      flexDirection: "row",
+      justifyContent: "center",
+      alignItems: "center",
+      gap: 40 * scale,
     },
-    ctrlBtn: { 
-      padding: 10 * scale, 
-      backgroundColor: 'rgba(0,0,0,0.7)', 
-      borderRadius: 20 * scale 
+    ctrlBtn: {
+      padding: 10 * scale,
+      backgroundColor: "rgba(0,0,0,0.7)",
+      borderRadius: 20 * scale,
     },
-    playBtn: { 
-      padding: 14 * scale, 
-      backgroundColor: 'rgba(0,0,0,0.8)', 
-      borderRadius: 28 * scale 
+    playBtn: {
+      padding: 14 * scale,
+      backgroundColor: "rgba(0,0,0,0.8)",
+      borderRadius: 25 * scale,
     },
-    botRow: { 
-      alignItems: 'center' 
+    botRow: {
+      alignItems: "center",
     },
     progress: {
-      width: '100%',
+      width: "100%",
       height: 3 * scale,
-      backgroundColor: 'rgba(255,255,255,0.3)',
+      backgroundColor: "rgba(255,255,255,0.3)",
       borderRadius: 2 * scale,
-      overflow: 'hidden',
-      position: 'relative'
+      overflow: "hidden",
+      position: "relative",
     },
-    fill: { 
-      height: '100%', 
-      backgroundColor: '#007AFF' 
+    fill: {
+      height: "100%",
+      backgroundColor: "#007AFF",
     },
     adMarker: {
-      position: 'absolute',
+      position: "absolute",
       top: 0,
       width: 2 * scale,
-      height: '100%',
-      backgroundColor: '#FFD700',
-      zIndex: 2
-    }
+      height: "100%",
+      backgroundColor: "#FFD700",
+      zIndex: 2,
+    },
   });
 };

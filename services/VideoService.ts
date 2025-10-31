@@ -1,4 +1,5 @@
 // services/VideoService.ts
+import axios, { AxiosResponse } from 'axios';
 
 export interface VideoData {
   id: string;
@@ -6,11 +7,11 @@ export interface VideoData {
   description: string;
   thumbnail: string;
   duration: number;
-  videoSource: string;
-  category: string;
-  genre?: string;
-  rating?: string;
-  year?: number;
+  videoUrl: string;
+  views: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AdData {
@@ -33,191 +34,22 @@ export interface AdSchedule {
 }
 
 export class VideoService {
-  private static videos: VideoData[] = [
-    {
-      id: '1',
-      title: 'Adhomukh swasan',
-      description: 'Beautiful nature scenes from around the world',
-      // thumbnail: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg',
-      thumbnail: 'https://images.news18.com/ibnkhabar/uploads/2022/07/WhatsApp-Image-2022-07-31-at-4.36.40-AM-2.jpeg',
-      duration: 600,
-      // videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-      videoSource: 'https://pub-55701647ee1f4f14b097a920d00d8eef.r2.dev/Adhomukhi%20Savasan.mp4',
-      category: 'Yoga',
-      genre: 'Yoga',
-      rating: 'PG',
-      year: 2023
-    },
-    {
-      id: '2',
-      title: 'Baddha konasana',
-      description: 'Learn to cook amazing dishes',
-      // thumbnail: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ElephantsDream.jpg',
-      thumbnail: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTGIM5DbHa0jUnfvr-P9PwAkc88ndD14wF4pA&s',
-      duration: 480,
-      // videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
-      videoSource: 'https://pub-55701647ee1f4f14b097a920d00d8eef.r2.dev/Baddha%20Konasana.mp4',
-      category: 'Yoga',
-      genre: 'Yoga',
-      rating: 'G',
-      year: 2023
-    },
-    {
-      id: '3',
-      title: 'Bhramari Pranayama',
-      description: 'Explore the animal kingdom',
-      // thumbnail: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerBlazes.jpg',
-      thumbnail: 'https://www.rishikulyogshalarishikesh.com/blog/wp-content/uploads/2024/09/Bhramari-Pranayama-1024x683.jpg',
-      duration: 540,
-      // videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-      videoSource: 'https://pub-55701647ee1f4f14b097a920d00d8eef.r2.dev/Bhramari%20Pranayama.mp4',
-      category: 'Yoga',
-      genre: 'Yoga',
-      rating: 'PG',
-      year: 2024
-    },
-    {
-      id: '4',
-      title: 'Dhanurasana',
-      description: 'Advanced cooking techniques',
-      // thumbnail: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerEscapes.jpg',
-      thumbnail: 'https://i.ndtvimg.com/i/2016-06/dhanurasana_625x350_61466409878.jpg',
-      duration: 720,
-      // videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
-      videoSource: 'https://pub-55701647ee1f4f14b097a920d00d8eef.r2.dev/Dhanurasana.mp4',
-      category: 'Yoga',
-      genre: 'Yoga',
-      rating: 'G',
-      year: 2024
-    },
-    {
-      id: '5',
-      title: 'Padmasana',
-      description: 'Relaxing natural environments',
-      // thumbnail: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerFun.jpg',
-      thumbnail: 'https://i0.wp.com/worldyogaforum.com/wp-content/uploads/2022/08/Padmasana-group-of-asanas.png?fit=1200%2C675&ssl=1',
-      duration: 480,
-      // videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
-      videoSource: 'https://pub-55701647ee1f4f14b097a920d00d8eef.r2.dev/Padhmasana.mp4',
-      category: 'Yoga',
-      genre: 'Yoga',
-      rating: 'G',
-      year: 2023
-    },
-    {
-      id: '6',
-      title: 'Sethu Bhandhasana',
-      description: 'Journey through space and time',
-      // thumbnail: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerJoyrides.jpg',
-      thumbnail: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSQZJMomCi7ENJIFX4F8hHLpqEsPCBxeu1Dag&s',
-      duration: 540,
-      // videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
-      videoSource: 'https://pub-55701647ee1f4f14b097a920d00d8eef.r2.dev/Sethu%20Bhandhasana.mp4',
-      category: 'Yoga',
-      genre: 'Yoga',
-      rating: 'PG-13',
-      year: 2024
-    },
-    {
-      id: '7',
-      title: 'Tiryaka Tadasana',
-      description: 'Latest technology trends and innovations',
-      // thumbnail: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerMeltdowns.jpg',
-      thumbnail: 'https://i0.wp.com/worldyogaforum.com/wp-content/uploads/2022/07/Tiryaka-Tadasana-Swaying-Palm-Tree-Pose-In-Yoga.png?fit=1200%2C675&ssl=1',
-      duration: 450,
-      // videoSource: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
-      videoSource: 'https://pub-55701647ee1f4f14b097a920d00d8eef.r2.dev/Triyakatadasan.mp4',
-      category: 'Yoga',
-      genre: 'Yoga',
-      rating: 'G',
-      year: 2024
-    },
-    {
-      id: '8',
-      title: 'Ustrasana',
-      description: 'Learn to cook amazing dishes',
-      thumbnail: 'https://www.theyogacollective.com/wp-content/uploads/2019/10/AdobeStock_132661315-1200x800.jpeg',
-      duration: 480,
-      videoSource: 'https://pub-55701647ee1f4f14b097a920d00d8eef.r2.dev/Ustrasana.mp4',
-      category: 'Yoga',
-      genre: 'Yoga',
-      rating: 'G',
-      year: 2023
-    },
-    {
-      id: '9',
-      title: 'Utthita hasta padangusthasana',
-      description: 'Explore the animal kingdom',
-      thumbnail: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRSgIFnpoR50ed0qnrP6JgSFIl9wZfARD06PQ&s',
-      duration: 540,
-      videoSource: 'https://pub-55701647ee1f4f14b097a920d00d8eef.r2.dev/Utthita%20hasta%20padangusthasana.mp4',
-      category: 'Yoga',
-      genre: 'Yoga',
-      rating: 'PG',
-      year: 2024
-    },
-    {
-      id: '10',
-      title: 'Utthita trikonasana',
-      description: 'Advanced cooking techniques',
-      thumbnail: 'https://www.theyogacollective.com/wp-content/uploads/2019/10/5850642685417750730_IMG_8904-1-1200x800.jpg',
-      duration: 720,
-      videoSource: 'https://pub-55701647ee1f4f14b097a920d00d8eef.r2.dev/Utthita%20Trikonasana.mp4',
-      category: 'Yoga',
-      genre: 'Yoga',
-      rating: 'G',
-      year: 2024
-    },
-    {
-      id: '11',
-      title: 'Virabhadrasana',
-      description: 'Relaxing natural environments',
-      thumbnail: 'https://www.rishikulyogshalarishikesh.com/blog/wp-content/uploads/2025/02/Virabhadrasana-Pose-1024x683.jpg',
-      duration: 480,
-      videoSource: 'https://pub-55701647ee1f4f14b097a920d00d8eef.r2.dev/Veerabhadra%20Asana.mp4',
-      category: 'Yoga',
-      genre: 'Yoga',
-      rating: 'G',
-      year: 2023
-    },
-    {
-      id: '12',
-      title: 'Virabhadrasana - Basic',
-      description: 'Journey through space and time',
-      thumbnail: 'https://insideyoga.org/wp-content/uploads/2024/03/39_Virabhadrasana-I-Traditional.jpg',
-      duration: 540,
-      videoSource: 'https://pub-55701647ee1f4f14b097a920d00d8eef.r2.dev/Veerabhadrasana%20-%20Basic.mp4',
-      category: 'Yoga',
-      genre: 'Yoga',
-      rating: 'PG-13',
-      year: 2024
-    },
-    {
-      id: '13',
-      title: 'Vrikshasana',
-      description: 'Latest technology trends and innovations',
-      thumbnail: 'https://www.arhantayoga.org/wp-content/uploads/2022/03/Tree-Pose-%E2%80%93-Vrikshasana.jpg',
-      duration: 450,
-      videoSource: 'https://pub-55701647ee1f4f14b097a920d00d8eef.r2.dev/Vrikasna.mp4',
-      category: 'Yoga',
-      genre: 'Yoga',
-      rating: 'G',
-      year: 2024
-    },
-    {
-      id: '14',
-      title: 'Padangusthasana',
-      description: 'Latest technology trends and innovations',
-      thumbnail: 'https://insideyoga.org/wp-content/uploads/2024/03/24_Padangusthasana.jpg',
-      duration: 450,
-      videoSource: 'https://pub-55701647ee1f4f14b097a920d00d8eef.r2.dev/Padangusthasana.mp4',
-      category: 'Yoga',
-      genre: 'Yoga',
-      rating: 'G',
-      year: 2024
-    }
-  ];
+  private static baseURL = 'https://yogalandadmin.netlify.app/';
+  
+  private static videosCache: VideoData[] | null = null;
+  private static cacheTimestamp = 0;
+  private static cacheTimeout = 5 * 60 * 1000; // 5 minutes
 
+  private static apiClient = axios.create({
+    baseURL: this.baseURL,
+    timeout: 50000,
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+  });
+
+  // Static ads data (unchanged)
   private static ads: AdData[] = [
     // Pre-roll ads
     {
@@ -243,7 +75,7 @@ export class VideoService {
       frequency: 2
     },
     
-    // Enhanced Mid-roll ads with more variety
+    // Mid-roll ads
     {
       id: 'midroll1',
       title: 'Energy Drink Commercial',
@@ -331,29 +163,172 @@ export class VideoService {
   private static videoWatchCount: { [key: string]: number } = {};
   private static lastAdShown: { [key: string]: string } = {};
 
-  static getVideos(): VideoData[] {
-    return this.videos;
+  // ✅ Check if cache is valid
+  private static isCacheValid(): boolean {
+    return (
+      this.videosCache !== null &&
+      Date.now() - this.cacheTimestamp < this.cacheTimeout
+    );
   }
 
-  static getVideosByCategory(category: string): VideoData[] {
-    return this.videos.filter(video => video.category === category);
+  // ✅ Centralized error handler
+  private static handleError(error: any, context: string): never {
+    console.error(`${context} Error:`, error);
+
+    if (axios.isAxiosError(error)) {
+      if (!error.response) {
+        throw new Error(
+          `Network connection failed. Check if API server is running at ${this.baseURL}`
+        );
+      }
+
+      const status = error.response.status;
+      const message = error.response.data?.message || error.message;
+
+      switch (status) {
+        case 404:
+          throw new Error(`Resource not found: ${message}`);
+        case 500:
+          throw new Error(`Server error: ${message}`);
+        default:
+          throw new Error(`API Error ${status}: ${message}`);
+      }
+    }
+
+    throw new Error(`Unexpected error: ${error.message || 'Unknown error'}`);
   }
 
-  static getCategories(): string[] {
-    return [...new Set(this.videos.map(video => video.category))];
+  // ✅ Fetch all videos from API - only return active videos
+  static async getVideos(forceRefresh = false): Promise<VideoData[]> {
+    if (!forceRefresh && this.isCacheValid()) {
+      console.log('[VideoService] Returning videos from cache');
+      return this.videosCache!;
+    }
+
+    try {
+      console.log(`[VideoService] Fetching videos from: ${this.baseURL}api/videos`);
+
+      const response: AxiosResponse<VideoData[]> = await this.apiClient.get('api/videos');
+      const allVideos = response.data;
+
+      // Filter to only show active videos
+      const activeVideos = allVideos.filter(video => video.active === true);
+
+      console.log(`[VideoService] Successfully fetched ${allVideos.length} videos, ${activeVideos.length} are active`);
+
+      this.videosCache = activeVideos;
+      this.cacheTimestamp = Date.now();
+
+      return activeVideos;
+    } catch (error) {
+      this.handleError(error, 'Get Videos');
+    }
   }
+
+  // ✅ Fetch single video by ID from API
+  static async getVideoById(id: string): Promise<VideoData | null> {
+    try {
+      const response: AxiosResponse<VideoData> = await this.apiClient.get(`api/videos/${id}`);
+      const video = response.data;
+      
+      // Only return if video is active
+      if (video.active) {
+        return video;
+      }
+      
+      console.warn(`[VideoService] Video with ID ${id} is not active`);
+      return null;
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        console.warn(`[VideoService] Video with ID ${id} not found`);
+        return null;
+      }
+      this.handleError(error, `Get Video ${id}`);
+    }
+  }
+
+  // ✅ Get videos by category
+  static async getVideosByCategory(category: string): Promise<VideoData[]> {
+    const videos = await this.getVideos();
+    return videos;
+  }
+
+
+  // ✅ Get featured videos
+  static async getFeaturedVideos(): Promise<VideoData[]> {
+    const videos = await this.getVideos();
+    return videos.slice(0, 3);
+  }
+
+  // ✅ Search videos
+  static async searchVideos(query: string): Promise<VideoData[]> {
+    const videos = await this.getVideos();
+    const lowercaseQuery = query.toLowerCase();
+    return videos.filter(video =>
+      video.title.toLowerCase().includes(lowercaseQuery) ||
+      video.description.toLowerCase().includes(lowercaseQuery)
+    );
+  }
+
+  // ✅ Increment video watch count (tracking locally)
+  static async incrementVideoWatchCount(videoId: string): Promise<void> {
+    try {
+      console.log(`📊 [VideoService] Tracking view for video: ${videoId}`);
+      
+      const viewData = {
+        videoId,
+        timestamp: Date.now(),
+        viewedAt: new Date().toISOString()
+      };
+      
+      this.videoWatchCount[videoId] = (this.videoWatchCount[videoId] || 0) + 1;
+      
+      // Optional: You can add API call here when backend is ready
+      // await this.apiClient.post(`api/videos/watch/${videoId}`);
+      
+    } catch (error) {
+      console.warn(`[VideoService] Failed to track video view for ${videoId}:`, error);
+    }
+  }
+
+  // ✅ Clear cache
+  static clearCache(): void {
+    this.videosCache = null;
+    this.cacheTimestamp = 0;
+    console.log('[VideoService] Video cache cleared');
+  }
+
+  // ✅ Check API health
+  static async checkApiHealth(): Promise<boolean> {
+    try {
+      const response = await this.apiClient.get('api/health');
+      return response.status === 200;
+    } catch (error) {
+      console.warn('[VideoService] /health failed, trying /videos');
+      try {
+        await this.apiClient.get('api/videos');
+        return true;
+      } catch (fallbackError) {
+        console.error('[VideoService] API is not accessible:', fallbackError);
+        return false;
+      }
+    }
+  }
+
+  // ✅ Validate video URL
+  static async validateVideoUrl(url: string): Promise<boolean> {
+    try {
+      const response = await fetch(url, { method: 'HEAD' });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  // ============ AD METHODS (UNCHANGED) ============
 
   static getRandomAd(type: 'pre-roll' | 'mid-roll' | 'post-roll' = 'pre-roll', videoData?: VideoData): AdData | null {
     let availableAds = this.ads.filter(ad => ad.type === type);
-    
-    if (videoData && videoData.category) {
-      const categoryFilteredAds = availableAds.filter(ad => 
-        !ad.targetCategory || ad.targetCategory.includes(videoData.category)
-      );
-      if (categoryFilteredAds.length > 0) {
-        availableAds = categoryFilteredAds;
-      }
-    }
     
     const videoKey = videoData ? videoData.id : 'global';
     const watchCount = this.videoWatchCount[videoKey] || 0;
@@ -376,27 +351,34 @@ export class VideoService {
     return selectedAd;
   }
 
-  // Enhanced mid-roll ad scheduling - More random and YouTube-like
   static generateAdSchedule(videoData: VideoData): AdSchedule[] {
     const schedule: AdSchedule[] = [];
-    const videoDuration = videoData.duration;
+    
+    // // Convert duration string to seconds if needed
+    // let videoDuration: number;
+    // if (typeof videoData.duration === 'string') {
+    //   // Parse duration string like "10:30" to seconds
+    //   const parts = videoData.duration.split(':');
+    //   videoDuration = parseInt(parts[0]) * 60 + (parts[1] ? parseInt(parts[1]) : 0);
+    // } else {
+    //   videoDuration = Number(videoData.duration);
+    // }
+
+      // Duration is already in seconds as a number
+      const videoDuration: number = Number(videoData.duration);
     
     // Only add mid-roll ads for videos longer than 3 minutes
     if (videoDuration < 180) return schedule;
     
-    // Calculate number of ads based on video length (1 ad per 2-4 minutes)
-    const adFrequency = 120 + Math.random() * 120; // 2-4 minutes between ads
+    const adFrequency = 120 + Math.random() * 120;
     const maxAds = Math.floor(videoDuration / adFrequency);
-    const numAds = Math.min(maxAds, 4); // Maximum 4 mid-roll ads per video
+    const numAds = Math.min(maxAds, 4);
     
     console.log(`📺 Scheduling ${numAds} mid-roll ads for ${videoDuration}s video`);
     
     for (let i = 0; i < numAds; i++) {
-      // Divide video into segments and place ads randomly within each segment
-      const segmentStart = Math.floor((videoDuration / numAds) * i) + 60; // Start after 1 minute
-      const segmentEnd = Math.floor((videoDuration / numAds) * (i + 1)) - 60; // End 1 minute before segment end
-      
-      // Random position within the segment
+      const segmentStart = Math.floor((videoDuration / numAds) * i) + 60;
+      const segmentEnd = Math.floor((videoDuration / numAds) * (i + 1)) - 60;
       const adPosition = segmentStart + Math.random() * (segmentEnd - segmentStart);
       
       const ad = this.getRandomAd('mid-roll', videoData);
@@ -410,68 +392,16 @@ export class VideoService {
       }
     }
     
-    // Sort by time position
     schedule.sort((a, b) => a.timePosition - b.timePosition);
-    
     return schedule;
   }
 
-  // Add method to get next ad that should be played
   static getNextScheduledAd(schedule: AdSchedule[], currentTime: number): AdSchedule | null {
     return schedule.find(item => 
       !item.triggered && 
       currentTime >= item.timePosition &&
-      currentTime <= item.timePosition + 2 // 2-second window
+      currentTime <= item.timePosition + 2
     ) || null;
-  }
-
-  static incrementVideoWatchCount(videoId: string): void {
-    this.videoWatchCount[videoId] = (this.videoWatchCount[videoId] || 0) + 1;
-  }
-
-  static getVideoById(id: string): VideoData | undefined {
-    return this.videos.find(video => video.id === id);
-  }
-
-  static getFeaturedVideos(): VideoData[] {
-    return this.videos.slice(0, 3);
-  }
-
-  static searchVideos(query: string): VideoData[] {
-    const lowercaseQuery = query.toLowerCase();
-    return this.videos.filter(video =>
-      video.title.toLowerCase().includes(lowercaseQuery) ||
-      video.description.toLowerCase().includes(lowercaseQuery) ||
-      video.category.toLowerCase().includes(lowercaseQuery)
-    );
-  }
-
-  static async validateVideoUrl(url: string): Promise<boolean> {
-    try {
-      const response = await fetch(url, { method: 'HEAD' });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }
-
-  static addCustomVideo(videoData: Omit<VideoData, 'id'>): VideoData {
-    const newId = (this.videos.length + 1).toString();
-    const newVideo: VideoData = {
-      id: newId,
-      ...videoData
-    };
-    this.videos.push(newVideo);
-    return newVideo;
-  }
-
-  static removeVideo(id: string): boolean {
-    const index = this.videos.findIndex(video => video.id === id);
-    if (index !== -1) {
-      this.videos.splice(index, 1);
-      return true;
-    }
-    return false;
   }
 
   static addAd(adData: Omit<AdData, 'id'>): AdData {
@@ -493,3 +423,5 @@ export class VideoService {
     this.lastAdShown = {};
   }
 }
+
+export default VideoService;

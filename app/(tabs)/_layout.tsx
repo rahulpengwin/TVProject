@@ -1,5 +1,5 @@
-import PlatformTabLayout from '@/layouts/TabLayout';
+import HomeScreen from '.';
 
 export default function TabLayout() {
-  return <PlatformTabLayout />;
+  return <HomeScreen />;
 }
