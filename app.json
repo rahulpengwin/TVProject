@@ -48,6 +48,12 @@
     },
     "newArchEnabled": true,
     "name": "Yoga Land",
-    "slug": "TVProject"
+    "slug": "TVProject",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "49610774-31a0-4e94-b8f7-61d3ecf263f7"
+      }
+    }
   }
 }
