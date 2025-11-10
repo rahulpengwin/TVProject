@@ -20,12 +20,15 @@
       "expo-router",
       "expo-font",
       "expo-build-properties",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-video"
     ],
     "android": {
       "edgeToEdgeEnabled": true,
       "splash": {
-        "image": "./assets/images/splash.png"
+        "image": "./assets/logo.png",
+        "backgroundColor": "#000000",
+        "resizeMode": "contain"
       },
       "adaptiveIcon": {
         "foregroundImage": "./assets/yoga.png",
@@ -35,7 +38,7 @@
     },
     "ios": {
       "splash": {
-        "image": "./assets/images/splash.png"
+        "image": "./assets/yogaland.png"
       }
     },
     "web": {

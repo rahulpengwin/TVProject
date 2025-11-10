@@ -1,17 +1,22 @@
-// components/VideoPlayer.tsx
-
 import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   StyleSheet,
   Pressable,
   Text,
-  Dimensions,
   Platform,
   BackHandler,
   TouchableOpacity,
-  Alert,
+  Dimensions,
+  ActivityIndicator,
+  Modal,
 } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { Ionicons } from "@expo/vector-icons";
 import { useScale } from "@/hooks/useScale";
@@ -22,6 +27,88 @@ import {
   VideoService,
 } from "@/services/VideoService";
 
+export interface VideoQuality {
+  label: string;
+  value: string;
+  bitrate: number;
+}
+
+// Helper: Get video dimensions using fetch to detect quality
+async function detectVideoQuality(videoUrl: string): Promise<VideoQuality[]> {
+  try {
+    const response = await fetch(videoUrl, { method: "HEAD" });
+    const contentLength = response.headers.get("content-length");
+    const contentType = response.headers.get("content-type");
+
+    console.log("📊 Video Info:", {
+      contentLength,
+      contentType,
+      url: videoUrl,
+    });
+
+    // Default qualities - always include Auto
+    const qualities: VideoQuality[] = [
+      { label: "Auto", value: "auto", bitrate: 0 },
+    ];
+
+    // Calculate file size in MB
+    const fileSizeInMB = contentLength
+      ? parseInt(contentLength) / (1024 * 1024)
+      : 0;
+
+    console.log(`📏 File size: ${fileSizeInMB.toFixed(2)} MB`);
+
+    // Add quality options based on file size
+    if (fileSizeInMB > 0) {
+      qualities.push({ label: "360p", value: "360p", bitrate: 500 });
+      qualities.push({ label: "480p", value: "480p", bitrate: 1000 });
+
+      if (fileSizeInMB > 50) {
+        qualities.push({ label: "720p", value: "720p", bitrate: 2500 });
+      }
+
+      if (fileSizeInMB > 150) {
+        qualities.push({ label: "1080p", value: "1080p", bitrate: 5000 });
+      }
+
+      if (fileSizeInMB > 300) {
+        qualities.push({ label: "1440p", value: "1440p", bitrate: 8000 });
+      }
+
+      if (fileSizeInMB > 500) {
+        qualities.push({ label: "4K", value: "2160p", bitrate: 15000 });
+      }
+    }
+
+    console.log(
+      `✅ Available qualities:`,
+      qualities.map((q) => q.label).join(", ")
+    );
+
+    return qualities;
+  } catch (error) {
+    console.warn("⚠️ Could not detect video quality:", error);
+    return [
+      { label: "Auto", value: "auto", bitrate: 0 },
+      { label: "360p", value: "360p", bitrate: 500 },
+      { label: "480p", value: "480p", bitrate: 1000 },
+    ];
+  }
+}
+
+// Helper: Convert URL to different quality (if backend supports it)
+function getQualityUrl(originalUrl: string, quality: VideoQuality): string {
+  if (quality.value === "auto") return originalUrl;
+
+  const patterns = [
+    originalUrl.replace(/\.mp4$/i, `_${quality.value}.mp4`),
+    originalUrl.replace(/\.mp4$/i, `-${quality.value}.mp4`),
+    originalUrl.replace(/\/([^\/]+)\.mp4$/i, `/${quality.value}/$1.mp4`),
+  ];
+
+  return originalUrl;
+}
+
 const useTVEventHandler = Platform.isTV
   ? require("react-native").useTVEventHandler
   : (_: any) => {};
@@ -31,20 +118,76 @@ interface VideoPlayerProps {
   onVideoEnd?: () => void;
   onBack?: () => void;
   autoPlayAd?: boolean;
-  adTypes?: Array<"pre-roll" | "mid-roll" | "post-roll">;
+  adTypes?: Array<"pre-roll" | "mid-roll">;
 }
+
+const AnimatedButton = ({
+  children,
+  onPress,
+  style,
+  disabled = false,
+  isHighlighted = false,
+  isFocused = false,
+}: {
+  children: React.ReactNode;
+  onPress: () => void;
+  style?: any;
+  disabled?: boolean;
+  isHighlighted?: boolean;
+  isFocused?: boolean;
+}) => {
+  const scale = useSharedValue(isHighlighted || isFocused ? 0.85 : 1);
+  const opacity = useSharedValue(isHighlighted ? 0.6 : 1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+    opacity: opacity.value,
+  }));
+
+  const handlePressIn = () => {
+    scale.value = withSpring(0.85, { damping: 15 });
+    opacity.value = withTiming(0.6, { duration: 100 });
+  };
+
+  const handlePressOut = () => {
+    scale.value = withSpring(1, { damping: 15 });
+    opacity.value = withTiming(1, { duration: 100 });
+  };
+
+  useEffect(() => {
+    if (isHighlighted || isFocused) {
+      scale.value = withSpring(0.85, { damping: 15 });
+      if (isHighlighted) {
+        opacity.value = withTiming(0.6, { duration: 100 });
+      }
+    } else {
+      scale.value = withSpring(1, { damping: 15 });
+      opacity.value = withTiming(1, { duration: 100 });
+    }
+  }, [isHighlighted, isFocused]);
+
+  return (
+    <Pressable
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      <Animated.View style={[style, animatedStyle]}>{children}</Animated.View>
+    </Pressable>
+  );
+};
 
 export function VideoPlayer({
   video,
   onVideoEnd,
   onBack,
   autoPlayAd = true,
-  adTypes = ["pre-roll", "mid-roll", "post-roll"],
+  adTypes = ["pre-roll", "mid-roll"],
 }: VideoPlayerProps) {
   const scale = useScale();
   const styles = useVideoPlayerStyles();
 
-  // Enhanced state management
   const [mode, setMode] = useState<"loading" | "ad" | "main" | "error">(
     "loading"
   );
@@ -57,29 +200,50 @@ export function VideoPlayer({
   const [duration, setDuration] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
   const [isVideoLoaded, setIsVideoLoaded] = useState(false);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [hasTrackedView, setHasTrackedView] = useState(false);
+  const [seekDirection, setSeekDirection] = useState<
+    "forward" | "backward" | null
+  >(null);
+  const [showQualityModal, setShowQualityModal] = useState(false);
+  const [selectedQuality, setSelectedQuality] = useState<VideoQuality>({
+    label: "Auto",
+    value: "auto",
+    bitrate: 0,
+  });
+  const [availableQualities, setAvailableQualities] = useState<VideoQuality[]>([
+    { label: "Auto", value: "auto", bitrate: 0 },
+  ]);
+  const [isDetectingQuality, setIsDetectingQuality] = useState(true);
+  const [highlightedButton, setHighlightedButton] = useState<
+    "play" | "forward" | "backward" | null
+  >(null);
+  const [focusedControl, setFocusedControl] = useState<
+    "back" | "play" | "forward" | "backward" | "quality" | null
+  >(null);
+  const [selectedQualityIndex, setSelectedQualityIndex] = useState(0);
 
-  // Enhanced ad scheduling state
   const [adSchedule, setAdSchedule] = useState<AdSchedule[]>([]);
-  const [currentAdType, setCurrentAdType] = useState<
-    "pre-roll" | "mid-roll" | "post-roll"
-  >("pre-roll");
-  const [savedPlayTime, setSavedPlayTime] = useState(0); // Save time before ad
+  const [currentAdType, setCurrentAdType] = useState<"pre-roll" | "mid-roll">(
+    "pre-roll"
+  );
+  const [savedPlayTime, setSavedPlayTime] = useState(0);
 
-  // Timer refs
   const adInterval = useRef<number | null>(null);
   const adTimeout = useRef<number | null>(null);
   const controlsTimeout = useRef<number | null>(null);
   const timeInterval = useRef<number | null>(null);
+  const bufferingCheckInterval = useRef<number | null>(null);
+  const lastCurrentTime = useRef(0);
+  const consecutiveStallCount = useRef(0);
 
-  // Create video player without initial source
   const player = useVideoPlayer("", (player) => {
     player.loop = false;
     player.muted = false;
     player.volume = 1.0;
   });
 
-
-  // TV remote handler - Enhanced with complete D-pad support
+  // TV remote handler - Simple and intuitive
   useTVEventHandler((evt: any) => {
     if (!evt) return;
 
@@ -87,72 +251,146 @@ export function VideoPlayer({
 
     console.log("📺 TV Remote Event:", eventType, "Mode:", mode);
 
-    // Select/Play-Pause Button
+    // Handle quality modal navigation
+    if (showQualityModal) {
+      if (eventType === "up") {
+        setSelectedQualityIndex((prev) =>
+          prev > 0 ? prev - 1 : availableQualities.length - 1
+        );
+        return;
+      }
+
+      if (eventType === "down") {
+        setSelectedQualityIndex((prev) =>
+          prev < availableQualities.length - 1 ? prev + 1 : 0
+        );
+        return;
+      }
+
+      if (eventType === "select") {
+        handleQualityChange(availableQualities[selectedQualityIndex]);
+        return;
+      }
+
+      if (["menu", "back"].includes(eventType)) {
+        setShowQualityModal(false);
+        return;
+      }
+
+      return;
+    }
+    // Ad mode controls
     if (["select", "playPause"].includes(eventType)) {
       if (mode === "ad" && canSkip) {
         skipAd();
       } else if (mode === "main" && isVideoLoaded) {
-        togglePlayPause();
+        if (focusedControl === "quality" && availableQualities.length > 1) {
+          setShowQualityModal(true);
+          setSelectedQualityIndex(
+            availableQualities.findIndex(
+              (q) => q.value === selectedQuality.value
+            )
+          );
+        } else if (focusedControl === "backward") {
+          handleSeek("backward");
+        } else if (focusedControl === "forward") {
+          handleSeek("forward");
+        } else {
+          // Show controls BEFORE toggling play/pause
+          setShowControls(true);
+          setHighlightedButton("play");
+          setTimeout(() => setHighlightedButton(null), 400);
+          togglePlayPause();
+        }
       }
       return;
     }
 
-    // Back/Menu Button
-    if (["menu", "back"].includes(eventType)) {
-      handleBack();
-      return;
-    }
-
-    // D-pad navigation during main video playback
+    // Main video controls
     if (mode === "main" && isVideoLoaded) {
-      // Left Arrow - Seek Backward
+      // CENTER button - Play/Pause
+      if (["select", "playPause"].includes(eventType)) {
+        setHighlightedButton("play");
+        setTimeout(() => setHighlightedButton(null), 400);
+        togglePlayPause();
+        // Don't auto-hide when paused
+        if (isPlaying) {
+          // Video is playing, will pause now - keep controls visible
+          setShowControls(true);
+        }
+        return;
+      }
+
+      // RIGHT button - Forward 10 seconds
       if (eventType === "right") {
+        setHighlightedButton("forward");
+        setTimeout(() => setHighlightedButton(null), 400);
         handleSeek("forward");
         return;
       }
 
-      // Right Arrow - Seek Forward
+      // LEFT button - Backward 10 seconds
       if (eventType === "left") {
+        setHighlightedButton("backward");
+        setTimeout(() => setHighlightedButton(null), 400);
         handleSeek("backward");
         return;
       }
 
-      // Up Arrow - Volume Up (optional)
+      // UP button - Show/Focus quality settings
       if (eventType === "up") {
-        const newVolume = Math.min(player.volume + 0.1, 1.0);
-        player.volume = newVolume;
-        console.log("🔊 Volume:", Math.round(newVolume * 100) + "%");
-        setShowControls(true);
+        if (!showControls) {
+          setShowControls(true);
+        }
+        setFocusedControl("quality");
+        console.log("🎚️ Quality settings focused");
         return;
       }
 
-      // Down Arrow - Volume Down (optional)
+      // DOWN button - Hide controls
       if (eventType === "down") {
-        const newVolume = Math.max(player.volume - 0.1, 0);
-        player.volume = newVolume;
-        console.log("🔉 Volume:", Math.round(newVolume * 100) + "%");
-        setShowControls(true);
+        setFocusedControl(null);
+        setShowControls(false);
+        console.log("👇 Controls hidden");
+        return;
+      }
+
+      // BACK/MENU button - Exit video
+      if (["menu", "back"].includes(eventType)) {
+        handleBack();
         return;
       }
     }
   });
+
+  useEffect(() => {
+    const detectQualities = async () => {
+      console.log("🔍 Detecting video qualities for:", video.videoUrl);
+      setIsDetectingQuality(true);
+
+      const qualities = await detectVideoQuality(video.videoUrl);
+      setAvailableQualities(qualities);
+      setSelectedQuality(qualities[0]);
+
+      console.log("✅ Available qualities:", qualities);
+      setIsDetectingQuality(false);
+    };
+
+    detectQualities();
+  }, [video.videoUrl]);
 
   // Initialize video and ad scheduling
   useEffect(() => {
     const initializePlayer = async () => {
       console.log("🎬 Initializing Player for video:", video.title);
 
-      // Generate enhanced random ad schedule
-      const schedule = VideoService.generateAdSchedule(video);
+      const schedule = await VideoService.generateAdSchedule(video);
       setAdSchedule(schedule);
 
-      // Increment watch count for ad frequency calculation
-      VideoService.incrementVideoWatchCount(video.id);
+      // await VideoService.incrementVideoWatchCount(video.id);
 
-      // Set initial duration
       setDuration(video.duration);
 
-      // Start with pre-roll ad or main video
       setTimeout(() => {
         if (autoPlayAd && adTypes.includes("pre-roll")) {
           loadAd("pre-roll");
@@ -162,8 +400,10 @@ export function VideoPlayer({
       }, 300);
     };
 
-    initializePlayer();
-  }, [video.id]);
+    if (!isDetectingQuality) {
+      initializePlayer();
+    }
+  }, [video.id, isDetectingQuality]);
 
   // Android TV back button handler
   useEffect(() => {
@@ -176,14 +416,52 @@ export function VideoPlayer({
     }
   }, []);
 
-  // Enhanced time tracking with better mid-roll ad detection
+  // Monitor buffering state
+  useEffect(() => {
+    if (mode === "main" && isVideoLoaded && player && isPlaying) {
+      bufferingCheckInterval.current = setInterval(() => {
+        const currentPos = Math.floor(player.currentTime || 0);
+
+        if (isPlaying && currentPos === lastCurrentTime.current) {
+          consecutiveStallCount.current += 1;
+
+          if (consecutiveStallCount.current >= 2) {
+            setIsBuffering(true);
+          }
+        } else {
+          if (consecutiveStallCount.current > 0) {
+            consecutiveStallCount.current = 0;
+            setIsBuffering(false);
+            console.log("✅ Buffering resolved");
+          }
+          lastCurrentTime.current = currentPos;
+        }
+      }, 1000);
+    }
+
+    return () => {
+      if (bufferingCheckInterval.current !== null) {
+        clearInterval(bufferingCheckInterval.current);
+        bufferingCheckInterval.current = null;
+      }
+    };
+  }, [mode, isVideoLoaded, isPlaying, player]);
+
+  // Enhanced time tracking with better mid-roll ad detection and view tracking
   useEffect(() => {
     if (mode === "main" && isPlaying && isVideoLoaded) {
       timeInterval.current = setInterval(() => {
         const currentPlayerTime = Math.floor(player.currentTime || 0);
         setCurrentTime(currentPlayerTime);
 
-        // Check for scheduled mid-roll ads
+        // Track view after 10 seconds (only once)
+        if (currentPlayerTime >= 10 && !hasTrackedView) {
+          console.log("📊 10 seconds reached, tracking video view...");
+          VideoService.incrementVideoWatchCount(video.id);
+          setHasTrackedView(true);
+        }
+
+        // Mid-roll ad detection
         if (adTypes.includes("mid-roll")) {
           const nextAd = VideoService.getNextScheduledAd(
             adSchedule,
@@ -198,27 +476,29 @@ export function VideoPlayer({
               currentPlayerTime
             );
 
-            // Mark this ad as triggered
             const updatedSchedule = adSchedule.map((item) =>
               item === nextAd ? { ...item, triggered: true } : item
             );
             setAdSchedule(updatedSchedule);
 
-            // Save current time and pause main video
-            setSavedPlayTime(currentPlayerTime);
+            // Save CURRENT position before showing ad
+            const savePosition = currentPlayerTime;
+            setSavedPlayTime(savePosition);
+            console.log("💾 Saved position before ad:", savePosition);
+
             player.pause();
             setIsPlaying(false);
 
-            // Load and play the ad
-            setTimeout(() => loadAd("mid-roll", nextAd.ad), 500);
+            // Pass saved position to loadAd function
+            setTimeout(() => loadAd("mid-roll", nextAd.ad, savePosition), 500);
           }
         }
 
-        // Check for video end
+        // Video end detection
         if (currentPlayerTime >= duration - 2) {
           handleVideoEnd();
         }
-      }, 1000) as number;
+      }, 1000);
     } else {
       if (timeInterval.current !== null) {
         clearInterval(timeInterval.current);
@@ -232,20 +512,46 @@ export function VideoPlayer({
         timeInterval.current = null;
       }
     };
-  }, [mode, isPlaying, isVideoLoaded, duration, adSchedule]);
+  }, [mode, isPlaying, isVideoLoaded, duration, adSchedule, hasTrackedView]);
 
-  // Auto-hide controls
+  // Auto-hide controls - Only hide when playing
   useEffect(() => {
+    // When paused, ensure controls are visible
+    if (mode === "main" && !isPlaying) {
+      setShowControls(true);
+      if (controlsTimeout.current !== null) {
+        clearTimeout(controlsTimeout.current);
+        controlsTimeout.current = null;
+      }
+      return;
+    }
+
+    // When focused on a control, keep controls visible
+    if (focusedControl) {
+      if (controlsTimeout.current !== null) {
+        clearTimeout(controlsTimeout.current);
+        controlsTimeout.current = null;
+      }
+      return;
+    }
+
+    // Only auto-hide when video is playing and no focus
     if (mode === "main" && showControls && isPlaying) {
       if (controlsTimeout.current !== null) {
         clearTimeout(controlsTimeout.current);
       }
-      controlsTimeout.current = setTimeout(
-        () => setShowControls(false),
-        4000
-      ) as number;
+      controlsTimeout.current = setTimeout(() => {
+        setShowControls(false);
+      }, 5000);
     }
-  }, [mode, showControls, isPlaying]);
+
+    return () => {
+      if (controlsTimeout.current !== null) {
+        clearTimeout(controlsTimeout.current);
+        controlsTimeout.current = null;
+      }
+    };
+  }, [mode, showControls, isPlaying, focusedControl]);
 
   function clearAdTimers() {
     if (adInterval.current !== null) {
@@ -258,24 +564,27 @@ export function VideoPlayer({
     }
   }
 
-  // Enhanced ad loading with specific ad support
   async function loadAd(
-    type: "pre-roll" | "mid-roll" | "post-roll",
-    specificAd?: AdData
+    type: "pre-roll" | "mid-roll",
+    specificAd?: AdData,
+    adSavedPosition?: number
   ) {
     console.log(`🔁 Loading ${type} Ad`);
+    console.log(`💾 Ad saved position parameter:`, adSavedPosition);
 
-    const selectedAd = specificAd || VideoService.getRandomAd(type, video);
+    const selectedAd =
+      specificAd || (await VideoService.getRandomAd(type, video));
 
     if (!selectedAd) {
       console.log(`No ${type} ad available, proceeding...`);
       if (type === "pre-roll") {
         loadMain();
       } else if (type === "mid-roll") {
-        // Resume main video immediately if no ad
-        resumeMainVideo();
-      } else if (type === "post-roll") {
-        onVideoEnd?.();
+        if (adSavedPosition !== undefined && adSavedPosition > 0) {
+          resumeMainVideo(adSavedPosition);
+        } else {
+          resumeMainVideo();
+        }
       }
       return;
     }
@@ -286,51 +595,89 @@ export function VideoPlayer({
     setAdTimer(0);
     setCanSkip(false);
     setCurrentTime(0);
-    setDuration(selectedAd.duration);
+    setDuration(selectedAd.duration || 15);
     setIsPlaying(false);
     setIsVideoLoaded(false);
+    setIsBuffering(false);
+    consecutiveStallCount.current = 0;
 
     try {
-      console.log("🎥 Loading ad video source:", selectedAd.videoSource);
+      console.log("🎥 Parsing VAST URL:", selectedAd.vastUrl);
 
-      // Use replaceAsync for ad
-      await player.replaceAsync(selectedAd.videoSource);
+      const actualVideoUrl = await VideoService.parseVastXml(
+        selectedAd.vastUrl
+      );
+
+      if (!actualVideoUrl) {
+        console.warn("⚠️ Failed to extract video from VAST, skipping ad...");
+        if (type === "mid-roll") {
+          if (adSavedPosition !== undefined && adSavedPosition > 0) {
+            resumeMainVideo(adSavedPosition);
+          } else {
+            resumeMainVideo();
+          }
+        } else {
+          setTimeout(() => handleAdComplete(), 200);
+        }
+        return;
+      }
+
+      console.log("🎥 Loading ad video source:", actualVideoUrl);
+
+      player.pause();
+      player.muted = false;
+      player.volume = 1.0;
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      await player.replaceAsync(actualVideoUrl);
       setIsVideoLoaded(true);
 
       setTimeout(() => {
         setMode("ad");
         player.currentTime = 0;
+        player.muted = false;
+        player.volume = 1.0;
+
         player.play();
         setIsPlaying(true);
-        startAdCountdown(selectedAd);
+        startAdCountdown(selectedAd, type, adSavedPosition);
         console.log(`▶️ ${type} ad playback started: "${selectedAd.title}"`);
-      }, 800);
+      }, 300);
     } catch (error) {
       console.warn("⚠️ Ad load error, continuing with content...", error);
       if (type === "mid-roll") {
-        resumeMainVideo();
+        if (adSavedPosition !== undefined && adSavedPosition > 0) {
+          resumeMainVideo(adSavedPosition);
+        } else {
+          resumeMainVideo();
+        }
       } else {
-        setTimeout(() => handleAdComplete(), 1000);
+        setTimeout(() => handleAdComplete(), 200);
       }
     }
   }
 
-  function startAdCountdown(adData: AdData) {
-    // Skip countdown timer
+  function startAdCountdown(
+    adData: AdData,
+    adType: "pre-roll" | "mid-roll" = "pre-roll",
+    adSavedPosition?: number
+  ) {
     adInterval.current = setInterval(() => {
       setAdTimer((timer) => {
-        if (timer + 1 >= adData.skipAfter) {
+        const skipAfter = adData.skipAfter || 5;
+        if (timer + 1 >= skipAfter) {
           setCanSkip(true);
         }
         return timer + 1;
       });
-    }, 1000) as number;
+    }, 1000);
 
-    // Auto-complete ad timer
+    const adDuration = adData.duration || 15;
     adTimeout.current = setTimeout(() => {
       console.log("⏹ Ad auto-completed");
-      handleAdComplete();
-    }, adData.duration * 1000) as number;
+      handleAdComplete(adType, adSavedPosition);
+    }, adDuration * 1000);
   }
 
   function skipAd() {
@@ -339,20 +686,43 @@ export function VideoPlayer({
     clearAdTimers();
     player.pause();
     setIsPlaying(false);
-    handleAdComplete();
+    // Pass savedPlayTime when skipping mid-roll ad
+    if (currentAdType === "mid-roll") {
+      handleAdComplete(currentAdType, savedPlayTime);
+    } else {
+      handleAdComplete();
+    }
   }
 
-  function handleAdComplete() {
-    console.log("✅ Ad completed, type:", currentAdType);
+  function handleAdComplete(
+    adType?: "pre-roll" | "mid-roll",
+    adSavedPosition?: number
+  ) {
+    const type = adType || currentAdType;
+    console.log("✅ Ad completed, type:", type);
+    console.log("💾 Ad saved position in handleAdComplete:", adSavedPosition);
     clearAdTimers();
 
-    if (currentAdType === "pre-roll") {
+    if (type === "pre-roll") {
       transitionToMain();
-    } else if (currentAdType === "mid-roll") {
-      // Resume main video from saved position
-      resumeMainVideo();
-    } else if (currentAdType === "post-roll") {
-      onVideoEnd?.();
+    } else if (type === "mid-roll") {
+      console.log(
+        `🔍 Checking saved position: ${adSavedPosition} vs video duration: ${video.duration}`
+      );
+
+      if (
+        adSavedPosition !== undefined &&
+        adSavedPosition > 0 &&
+        adSavedPosition <= video.duration
+      ) {
+        console.log("✅ Valid saved position, resuming from:", adSavedPosition);
+        resumeMainVideo(adSavedPosition);
+      } else {
+        console.warn(
+          `⚠️ Invalid saved position (${adSavedPosition}), loading from start`
+        );
+        loadMain();
+      }
     }
   }
 
@@ -366,39 +736,82 @@ export function VideoPlayer({
     setShowControls(false);
     setIsPlaying(false);
     setIsVideoLoaded(false);
+    setIsBuffering(false);
+    consecutiveStallCount.current = 0;
 
     setTimeout(() => {
       loadMain();
-    }, 500);
+    }, 200);
   }
+  async function resumeMainVideo(positionToResume?: number) {
+    // Use passed position parameter, fallback to savedPlayTime, then to 0
+    const targetPosition =
+      positionToResume !== undefined ? positionToResume : savedPlayTime;
 
-  async function resumeMainVideo() {
-    console.log("🔁 Resuming Main Video from time:", savedPlayTime);
+    console.log(
+      "🔁 Resuming Main Video from time:",
+      targetPosition,
+      "(passed:",
+      positionToResume,
+      ", saved:",
+      savedPlayTime,
+      ")"
+    );
     clearAdTimers();
     setMode("loading");
     setAd(null);
     setCanSkip(false);
     setShowControls(false);
     setIsVideoLoaded(false);
+    setIsPlaying(false);
+    setIsBuffering(false);
+    consecutiveStallCount.current = 0;
 
     try {
-      // Use replaceAsync for main video
+      player.pause();
+      player.muted = false;
+      player.volume = 1.0;
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       await player.replaceAsync(video.videoUrl);
       setDuration(video.duration);
       setIsVideoLoaded(true);
 
-      setTimeout(() => {
-        // Seek to saved position (where ad was triggered)
-        player.currentTime = savedPlayTime;
-        setCurrentTime(savedPlayTime);
-        setMode("main");
-        player.play();
-        setIsPlaying(true);
-        setShowControls(true);
-        console.log("▶️ Main video resumed at", savedPlayTime, "seconds");
-      }, 1000);
+      await new Promise((resolve) => setTimeout(resolve, 400));
+
+      let resumePosition = targetPosition;
+
+      if (resumePosition < 0) {
+        resumePosition = 0;
+      } else if (resumePosition > video.duration - 1) {
+        resumePosition = video.duration - 1;
+      }
+
+      console.log(
+        "⏩ Seeking to position:",
+        resumePosition,
+        "| Duration:",
+        video.duration
+      );
+
+      player.currentTime = resumePosition;
+      setCurrentTime(resumePosition);
+      lastCurrentTime.current = resumePosition;
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      player.muted = false;
+      player.volume = 1.0;
+
+      setMode("main");
+      player.play();
+      setIsPlaying(true);
+      setShowControls(true);
+
+      console.log("▶️ Main video resumed at", resumePosition, "seconds");
     } catch (error) {
-      console.error("❌Error resuming main video", error);
+      console.error("❌ Error resuming main video", error);
       setErrorMessage("Failed to resume video");
       setMode("error");
     }
@@ -409,9 +822,17 @@ export function VideoPlayer({
     setMode("loading");
     setIsPlaying(false);
     setIsVideoLoaded(false);
+    setIsBuffering(false);
+    setHasTrackedView(false); // Reset view tracking
+    consecutiveStallCount.current = 0;
 
     try {
-      // Use replaceAsync for better performance
+      player.pause();
+      player.muted = false;
+      player.volume = 1.0;
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
       await player.replaceAsync(video.videoUrl);
       setDuration(video.duration);
       setIsVideoLoaded(true);
@@ -419,11 +840,17 @@ export function VideoPlayer({
       setTimeout(() => {
         setMode("main");
         player.currentTime = 0;
+        setCurrentTime(0);
+        lastCurrentTime.current = 0;
+
+        player.muted = false;
+        player.volume = 1.0;
+
         player.play();
         setIsPlaying(true);
         setShowControls(true);
         console.log("▶️ Main video playback started");
-      }, 1000);
+      }, 300);
     } catch (error) {
       console.error("❌ Main video load error", error);
       setErrorMessage(
@@ -438,28 +865,25 @@ export function VideoPlayer({
   function handleVideoEnd() {
     console.log("⏹ Video ended");
     setIsPlaying(false);
-
-    // Check for post-roll ads before ending
-    if (adTypes.includes("post-roll")) {
-      loadAd("post-roll");
-    } else {
-      onVideoEnd?.();
-    }
+    onVideoEnd?.();
   }
 
-  function togglePlayPause() {
-    console.log("⏯ Toggle play/pause, current state:", isPlaying);
-    if (mode !== "main" || !isVideoLoaded) return;
+function togglePlayPause() {
+  console.log("⏯ Toggle play/pause, current state:", isPlaying);
+  if (mode !== "main" || !isVideoLoaded) return;
 
-    if (isPlaying) {
-      player.pause();
-      setIsPlaying(false);
-    } else {
-      player.play();
-      setIsPlaying(true);
-    }
+  if (isPlaying) {
+    // Pausing - keep controls visible
+    player.pause();
+    setIsPlaying(false);
+    setShowControls(true);
+  } else {
+    // Playing - show controls briefly, then auto-hide
+    player.play();
+    setIsPlaying(true);
     setShowControls(true);
   }
+}
 
   function handleSeek(direction: "backward" | "forward") {
     if (mode !== "main" || !isVideoLoaded) return;
@@ -471,19 +895,30 @@ export function VideoPlayer({
         : Math.max(currentTime - seekAmount, 0);
 
     console.log(`⏩ Seeking ${direction} to:`, newTime);
+
+    setSeekDirection(direction);
+    setTimeout(() => setSeekDirection(null), 800);
     player.currentTime = newTime;
     setCurrentTime(newTime);
+    lastCurrentTime.current = newTime;
+    consecutiveStallCount.current = 0;
     setShowControls(true);
   }
 
-  function handleScreen() {
-    console.log("👆 Screen tapped, mode:", mode);
-    if (mode === "ad" && canSkip) {
-      skipAd();
-    } else if (mode === "main" && isVideoLoaded) {
+function handleScreen() {
+  console.log("👆 Screen tapped, mode:", mode);
+  if (mode === "ad" && canSkip) {
+    skipAd();
+  } else if (mode === "main" && isVideoLoaded) {
+    // If paused, always show controls
+    if (!isPlaying) {
+      setShowControls(true);
+    } else {
+      // If playing, toggle controls
       setShowControls((prev) => !prev);
     }
   }
+}
 
   function handleBack() {
     console.log("🔙 Back Button Pressed");
@@ -492,6 +927,11 @@ export function VideoPlayer({
     if (timeInterval.current !== null) {
       clearInterval(timeInterval.current);
       timeInterval.current = null;
+    }
+
+    if (bufferingCheckInterval.current !== null) {
+      clearInterval(bufferingCheckInterval.current);
+      bufferingCheckInterval.current = null;
     }
 
     player.pause();
@@ -503,7 +943,57 @@ export function VideoPlayer({
     setMode("loading");
     setErrorMessage("");
     setIsVideoLoaded(false);
+    setIsBuffering(false);
+    consecutiveStallCount.current = 0;
     setTimeout(() => loadMain(), 500);
+  }
+
+  function handleQualityChange(quality: VideoQuality) {
+    console.log("🎬 Changing quality to:", quality.label);
+    setSelectedQuality(quality);
+    setShowQualityModal(false);
+
+    if (quality.value === "auto") {
+      console.log("ℹ️ Auto quality selected - player will adapt automatically");
+    } else {
+      const qualityUrl = getQualityUrl(video.videoUrl, quality);
+
+      if (qualityUrl !== video.videoUrl) {
+        const currentPlaybackTime = currentTime;
+
+        setMode("loading");
+        setIsVideoLoaded(false);
+        setIsBuffering(false);
+        consecutiveStallCount.current = 0;
+
+        setTimeout(async () => {
+          try {
+            player.pause();
+            await new Promise((resolve) => setTimeout(resolve, 100));
+
+            await player.replaceAsync(qualityUrl);
+            setIsVideoLoaded(true);
+
+            await new Promise((resolve) => setTimeout(resolve, 300));
+
+            player.currentTime = currentPlaybackTime;
+            setCurrentTime(currentPlaybackTime);
+            lastCurrentTime.current = currentPlaybackTime;
+
+            setMode("main");
+            if (isPlaying) {
+              player.play();
+            }
+          } catch (error) {
+            console.error("❌ Quality change error:", error);
+            setMode("main");
+            player.replaceAsync(video.videoUrl);
+          }
+        }, 200);
+      } else {
+        console.log("ℹ️ Backend doesn't support this quality variant");
+      }
+    }
   }
 
   function formatTime(seconds: number): string {
@@ -512,24 +1002,16 @@ export function VideoPlayer({
     return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
   }
 
-  // Enhanced ad click handler
-  function handleAdClick() {
-    if (ad?.clickThroughUrl) {
-      Alert.alert(
-        "Open Advertisement",
-        `Visit ${ad.advertiser || "advertiser"} website?`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Open",
-            onPress: () => {
-              // In a real app, you would use Linking.openURL(ad.clickThroughUrl)
-              console.log("🌐 Opening ad URL:", ad.clickThroughUrl);
-            },
-          },
-        ]
-      );
-    }
+  // Show loading while detecting quality
+  if (isDetectingQuality) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.loading}>
+          <ActivityIndicator size="large" color="#007AFF" />
+          <Text style={styles.loadingText}>Loading...</Text>
+        </View>
+      </View>
+    );
   }
 
   return (
@@ -543,16 +1025,44 @@ export function VideoPlayer({
           nativeControls={false}
           contentFit="contain"
         />
-
-        {/* Touch overlay for interactions */}
         <Pressable style={styles.overlay} onPress={handleScreen} />
       </View>
 
       {/* Loading State */}
       {(mode === "loading" || !isVideoLoaded) && (
         <View style={styles.loading}>
+          <ActivityIndicator size="large" color="#007AFF" />
           <Text style={styles.loadingText}>
-            {mode === "loading" ? "Loading..." : "Preparing video..."}
+            {mode === "loading" ? "Loading..." : "Loading..."}
+          </Text>
+        </View>
+      )}
+
+      {/* Buffering Indicator */}
+      {isBuffering && isVideoLoaded && mode === "main" && isPlaying && (
+        <View style={styles.bufferingOverlay}>
+          <ActivityIndicator size="large" color="#007AFF" />
+          <Text style={styles.bufferingText}>Loading...</Text>
+        </View>
+      )}
+
+      {/* Seek Indicator */}
+      {seekDirection && (
+        <View
+          style={[
+            styles.seekIndicator,
+            {
+              left: seekDirection === "forward" ? "70%" : "30%",
+            },
+          ]}
+        >
+          <Ionicons
+            name={seekDirection === "forward" ? "play-forward" : "play-back"}
+            size={48 * scale}
+            color="#fff"
+          />
+          <Text style={styles.seekText}>
+            {seekDirection === "forward" ? "+10s" : "-10s"}
           </Text>
         </View>
       )}
@@ -567,14 +1077,13 @@ export function VideoPlayer({
         </View>
       )}
 
-      {/* Enhanced Ad Overlay with Random Mid-roll Support */}
+      {/* Ad Overlay */}
       {mode === "ad" && ad && isVideoLoaded && (
         <View style={styles.adOverlay}>
           <View style={styles.adBanner}>
             <Text style={styles.adLabel}>
               {currentAdType === "pre-roll" && "Advertisement"}
               {currentAdType === "mid-roll" && "⏸ Commercial Break"}
-              {currentAdType === "post-roll" && "🎉 Thank you for watching"}
             </Text>
             <Text style={styles.adTitle}>{ad.title}</Text>
             {ad.advertiser && (
@@ -582,18 +1091,13 @@ export function VideoPlayer({
             )}
             {currentAdType === "mid-roll" && (
               <Text style={styles.adResume}>
-                Video will resume in {Math.max(0, ad.duration - adTimer)}s
+                Video will resume in{" "}
+                {Math.max(0, (ad.duration || 15) - adTimer)}s
               </Text>
             )}
           </View>
 
           <View style={styles.adControls}>
-            {/* {ad.clickThroughUrl && (
-              <TouchableOpacity style={styles.adClickButton} onPress={handleAdClick}>
-                <Text style={styles.adClickText}>Learn More</Text>
-              </TouchableOpacity>
-            )}
-             */}
             <TouchableOpacity
               style={[
                 styles.skipBtn,
@@ -605,7 +1109,7 @@ export function VideoPlayer({
               <Text style={styles.skipText}>
                 {canSkip
                   ? "Skip Ad ⏭"
-                  : `Skip in ${Math.max(0, ad.skipAfter - adTimer)}s`}
+                  : `Skip in ${Math.max(0, (ad.skipAfter || 5) - adTimer)}s`}
               </Text>
             </TouchableOpacity>
           </View>
@@ -616,39 +1120,81 @@ export function VideoPlayer({
       {mode === "main" && showControls && isVideoLoaded && (
         <View style={styles.controls}>
           <View style={styles.topRow}>
-            <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
+            <AnimatedButton
+              style={styles.backBtn}
+              onPress={handleBack}
+              isFocused={focusedControl === "back"}
+            >
               <Ionicons name="arrow-back" size={24 * scale} color="#fff" />
-            </TouchableOpacity>
+            </AnimatedButton>
             <View style={styles.info}>
               <Text style={styles.title}>{video.title}</Text>
               <Text style={styles.time}>
                 {formatTime(currentTime)} / {formatTime(duration)}
               </Text>
             </View>
+            {availableQualities.length > 1 && (
+              <AnimatedButton
+                style={[
+                  styles.qualityBtn,
+                  focusedControl === "quality" && styles.focusedButton,
+                ]}
+                onPress={() => {
+                  setShowQualityModal(true);
+                  setSelectedQualityIndex(
+                    availableQualities.findIndex(
+                      (q) => q.value === selectedQuality.value
+                    )
+                  );
+                }}
+                isFocused={focusedControl === "quality"}
+              >
+                <Ionicons name="settings" size={24 * scale} color="#fff" />
+                <Text style={styles.qualityLabel}>{selectedQuality.label}</Text>
+              </AnimatedButton>
+            )}
           </View>
 
           <View style={styles.midRow}>
-            <TouchableOpacity
-              style={styles.ctrlBtn}
+            <AnimatedButton
+              style={[
+                styles.ctrlBtn,
+                focusedControl === "backward" && styles.focusedButton,
+              ]}
               onPress={() => handleSeek("backward")}
+              isHighlighted={highlightedButton === "backward"}
+              isFocused={focusedControl === "backward"}
             >
               <Ionicons name="play-back" size={24 * scale} color="#fff" />
-            </TouchableOpacity>
+            </AnimatedButton>
 
-            <TouchableOpacity style={styles.playBtn} onPress={togglePlayPause}>
+            <AnimatedButton
+              style={[
+                styles.playBtn,
+                focusedControl === "play" && styles.focusedButton,
+              ]}
+              onPress={togglePlayPause}
+              isHighlighted={highlightedButton === "play"}
+              isFocused={focusedControl === "play"}
+            >
               <Ionicons
                 name={isPlaying ? "pause" : "play"}
                 size={28 * scale}
                 color="#fff"
               />
-            </TouchableOpacity>
+            </AnimatedButton>
 
-            <TouchableOpacity
-              style={styles.ctrlBtn}
+            <AnimatedButton
+              style={[
+                styles.ctrlBtn,
+                focusedControl === "forward" && styles.focusedButton,
+              ]}
               onPress={() => handleSeek("forward")}
+              isHighlighted={highlightedButton === "forward"}
+              isFocused={focusedControl === "forward"}
             >
               <Ionicons name="play-forward" size={24 * scale} color="#fff" />
-            </TouchableOpacity>
+            </AnimatedButton>
           </View>
 
           <View style={styles.botRow}>
@@ -663,7 +1209,6 @@ export function VideoPlayer({
                   },
                 ]}
               />
-              {/* Show ad markers on progress bar */}
               {adSchedule.map((scheduleItem, index) => (
                 <View
                   key={index}
@@ -679,12 +1224,84 @@ export function VideoPlayer({
           </View>
         </View>
       )}
+
+      {/* Quality Selection Modal */}
+      {availableQualities.length > 1 && (
+        <Modal
+          visible={showQualityModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowQualityModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.qualityModal}>
+              <Text style={styles.modalTitle}>Select Quality</Text>
+              <Text style={styles.qualityNote}>
+                Use ↑↓ to navigate, SELECT to choose
+              </Text>
+              {availableQualities.map((item, index) => (
+                <TouchableOpacity
+                  key={item.value}
+                  style={[
+                    styles.qualityOption,
+                    selectedQuality.value === item.value &&
+                      styles.qualityOptionSelected,
+                    selectedQualityIndex === index &&
+                      styles.qualityOptionFocused,
+                  ]}
+                  onPress={() => handleQualityChange(item)}
+                >
+                  <View>
+                    <Text
+                      style={[
+                        styles.qualityOptionText,
+                        (selectedQuality.value === item.value ||
+                          selectedQualityIndex === index) &&
+                          styles.qualityOptionTextSelected,
+                      ]}
+                    >
+                      {item.label}
+                    </Text>
+                    {item.bitrate > 0 && (
+                      <Text style={styles.bitrateText}>
+                        {item.bitrate / 1000} Mbps
+                      </Text>
+                    )}
+                  </View>
+                  {selectedQuality.value === item.value && (
+                    <Ionicons
+                      name="checkmark"
+                      size={24 * scale}
+                      color="#007AFF"
+                    />
+                  )}
+                  {selectedQualityIndex === index &&
+                    selectedQuality.value !== item.value && (
+                      <Ionicons
+                        name="chevron-forward"
+                        size={20 * scale}
+                        color="#007AFF"
+                      />
+                    )}
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                style={styles.modalCloseBtn}
+                onPress={() => setShowQualityModal(false)}
+              >
+                <Text style={styles.modalCloseBtnText}>
+                  Press BACK to Close
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
 
-
-
+// Styles Hook
 const useVideoPlayerStyles = () => {
   const scale = useScale();
   const { width, height } = Dimensions.get("window");
@@ -724,6 +1341,41 @@ const useVideoPlayerStyles = () => {
     loadingText: {
       color: "#fff",
       fontSize: 18 * scale,
+      marginTop: 12 * scale,
+      fontWeight: "600",
+    },
+    bufferingOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: "rgba(0,0,0,0.5)",
+      justifyContent: "center",
+      alignItems: "center",
+      zIndex: 999,
+    },
+    bufferingText: {
+      color: "#fff",
+      fontSize: 16 * scale,
+      marginTop: 12 * scale,
+      fontWeight: "600",
+    },
+    seekIndicator: {
+      position: "absolute",
+      top: "52%",
+      transform: [{ translateX: -50 * scale }, { translateY: -50 * scale }],
+      backgroundColor: "rgba(0, 0, 0, 0.24)",
+      padding: 20 * scale,
+      borderRadius: 20 * scale,
+      alignItems: "center",
+      zIndex: 1000,
+    },
+    seekText: {
+      color: "#fff",
+      fontSize: 12 * scale,
+      fontWeight: "bold",
+      marginTop: 8 * scale,
     },
     errorText: {
       color: "#ff6b6b",
@@ -784,17 +1436,6 @@ const useVideoPlayerStyles = () => {
       alignItems: "flex-end",
       gap: 10 * scale,
     },
-    adClickButton: {
-      backgroundColor: "rgba(0,122,255,0.9)",
-      paddingHorizontal: 16 * scale,
-      paddingVertical: 8 * scale,
-      borderRadius: 6 * scale,
-    },
-    adClickText: {
-      color: "#fff",
-      fontSize: 14 * scale,
-      fontWeight: "600",
-    },
     skipBtn: {
       padding: 12 * scale,
       borderRadius: 8 * scale,
@@ -822,14 +1463,30 @@ const useVideoPlayerStyles = () => {
     topRow: {
       flexDirection: "row",
       alignItems: "center",
+      justifyContent: "space-between",
     },
     backBtn: {
       padding: 8 * scale,
       backgroundColor: "rgba(0,0,0,0.7)",
       borderRadius: 16 * scale,
     },
+    qualityBtn: {
+      padding: 8 * scale,
+      backgroundColor: "rgba(0,0,0,0.7)",
+      borderRadius: 16 * scale,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6 * scale,
+    },
+    qualityLabel: {
+      color: "#fff",
+      fontSize: 12 * scale,
+      fontWeight: "600",
+    },
     info: {
+      flex: 1,
       marginLeft: 16 * scale,
+      marginRight: 16 * scale,
     },
     title: {
       color: "#fff",
@@ -878,6 +1535,79 @@ const useVideoPlayerStyles = () => {
       height: "100%",
       backgroundColor: "#FFD700",
       zIndex: 2,
+    },
+    focusedButton: {
+      borderWidth: 2 * scale,
+      borderColor: "#007AFF",
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.7)",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    qualityModal: {
+      backgroundColor: "#1a1a1a",
+      borderRadius: 12 * scale,
+      padding: 20 * scale,
+      width: "80%",
+      maxHeight: "60%",
+    },
+    modalTitle: {
+      color: "#fff",
+      fontSize: 18 * scale,
+      fontWeight: "bold",
+      marginBottom: 8 * scale,
+      textAlign: "center",
+    },
+    qualityNote: {
+      color: "#aaa",
+      fontSize: 14 * scale,
+      marginBottom: 16 * scale,
+      textAlign: "center",
+    },
+    qualityOption: {
+      paddingVertical: 14 * scale,
+      paddingHorizontal: 16 * scale,
+      borderBottomWidth: 1,
+      borderBottomColor: "rgba(255,255,255,0.1)",
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    qualityOptionSelected: {
+      backgroundColor: "rgba(0,122,255,0.2)",
+    },
+    qualityOptionFocused: {
+      backgroundColor: "rgba(0,122,255,0.3)",
+      borderWidth: 2,
+      borderColor: "#007AFF",
+    },
+    qualityOptionText: {
+      color: "#ddd",
+      fontSize: 16 * scale,
+      fontWeight: "500",
+    },
+    qualityOptionTextSelected: {
+      color: "#007AFF",
+      fontWeight: "600",
+    },
+    bitrateText: {
+      color: "#888",
+      fontSize: 12 * scale,
+      marginTop: 4 * scale,
+    },
+    modalCloseBtn: {
+      marginTop: 16 * scale,
+      paddingVertical: 12 * scale,
+      backgroundColor: "#007AFF",
+      borderRadius: 8 * scale,
+      alignItems: "center",
+    },
+    modalCloseBtnText: {
+      color: "#fff",
+      fontSize: 16 * scale,
+      fontWeight: "600",
     },
   });
 };
