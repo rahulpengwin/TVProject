@@ -52,11 +52,13 @@
     "newArchEnabled": true,
     "name": "Yoga Land",
     "slug": "TVProject",
+    "version": "1.0.0",
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "49610774-31a0-4e94-b8f7-61d3ecf263f7"
+        "projectId": "1db2c6d0-1154-4794-9d5f-f9cd35cd13c2"
       }
-    }
+    },
+    "owner": "venkatnaidu"
   }
 }
